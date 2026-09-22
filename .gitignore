@@ -1,3 +1,6 @@
+# Written by install.sh into the packaged tree, not the checkout.
+lamplight/REVISION
+
 # Python
 __pycache__/
 *.py[cod]

@@ -26,6 +26,7 @@ from . import (
     catalog,
     config,
     db,
+    display_version,
     jobs,
     logsources,
     mariadb,
@@ -160,7 +161,7 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
     def template_globals():
         """The rail needs every component's status on every page."""
         nav = state()["components"] if authenticated() else []
-        return {"app_version": __version__, "nav_components": nav}
+        return {"app_version": display_version(), "nav_components": nav}
 
     # -- pages ------------------------------------------------------------
 

@@ -60,6 +60,7 @@ code, .mono { font-family: var(--mono); font-size: 0.86em; }
   height: 100vh;
 }
 .brand { display: flex; gap: 10px; align-items: center; text-decoration: none; padding: 0 20px; }
+.brand-text { display: flex; flex-direction: column; min-width: 0; }
 .brand strong { display: block; font-weight: 600; font-size: 15px; }
 .brand small { display: block; color: var(--muted); font-size: 11px; }
 .brand-version { color: var(--muted); font-size: 11px; letter-spacing: 0.04em; }

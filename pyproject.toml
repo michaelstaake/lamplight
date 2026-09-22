@@ -37,7 +37,7 @@ dev = ["pytest>=8.0", "ruff>=0.6"]
 include = ["lamplight*"]
 
 [tool.setuptools.package-data]
-lamplight = ["templates/*.html", "static/*.svg", "static/css/*.css", "static/js/*.js"]
+lamplight = ["REVISION", "templates/*.html", "static/*.svg", "static/css/*.css", "static/js/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

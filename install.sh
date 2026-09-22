@@ -33,6 +33,14 @@ if [[ "$SRC" != "$PREFIX" ]]; then
   tar -C "$SRC" --exclude=.git --exclude=.venv -cf - . | tar -C "$PREFIX" -xf -
 fi
 
+# The copy drops .git, and pip then installs from $PREFIX, so the service
+# cannot ask git for HEAD. Stamp the abbreviated commit into the package.
+if REV="$(git -C "$SRC" rev-parse --short=7 HEAD 2>/dev/null)" && [[ "$REV" =~ ^[0-9a-f]{7,40}$ ]]; then
+  printf '%s\n' "$REV" > "$PREFIX/lamplight/REVISION"
+else
+  rm -f "$PREFIX/lamplight/REVISION"
+fi
+
 echo "==> Building the virtualenv"
 rm -rf "$PREFIX/.venv"
 python3 -m venv "$PREFIX/.venv"

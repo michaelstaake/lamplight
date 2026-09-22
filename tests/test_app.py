@@ -2,7 +2,7 @@ import os
 
 from conftest import OWN_MEMORY, SERVICE_MEMORY, wait_for_job
 
-from lamplight import __version__
+from lamplight import __version__, display_version
 
 
 def test_healthz_needs_no_token(app):
@@ -77,6 +77,7 @@ def test_nav_has_a_link_per_component_in_catalog_order(client):
         assert f">{label}</span>" in body
     assert 'href="https://github.com/michaelstaake/lamplight"' in body
     assert ">Logs</span>" not in body
+    assert f'<span class="brand-version">v{display_version()}</span>' in body
 
 
 def test_every_component_has_its_own_page(client):
