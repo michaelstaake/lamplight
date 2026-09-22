@@ -9,8 +9,9 @@ from lamplight import mariadb, systemops
 
 def test_database_names_are_plain_identifiers():
     assert mariadb.clean_database("app_1") == "app_1"
-    with pytest.raises(ValueError, match="system database"):
-        mariadb.clean_database("mysql")
+    for name in ("mysql", "phpmyadmin"):
+        with pytest.raises(ValueError, match="system database"):
+            mariadb.clean_database(name)
     with pytest.raises(ValueError, match="letters, digits"):
         mariadb.clean_database("app`; DROP DATABASE mysql; --")
     with pytest.raises(ValueError, match="letters, digits"):
@@ -18,7 +19,7 @@ def test_database_names_are_plain_identifiers():
 
 
 def test_system_accounts_and_remote_hosts_are_refused():
-    for name in ("root", "mysql.sys", "debian-sys-maint", "mariadb.sys"):
+    for name in ("root", "mysql.sys", "debian-sys-maint", "mariadb.sys", "mysql", "phpmyadmin"):
         with pytest.raises(ValueError, match="system account"):
             mariadb.clean_user(name)
     assert mariadb.clean_host(None) == "localhost"
@@ -57,17 +58,34 @@ def test_user_sql_quotes_the_password_and_sets_the_session_mode():
     assert mariadb.drop_user_sql("shop", "127.0.0.1") == "DROP USER `shop`@`127.0.0.1`;"
 
 
+def test_grant_sql_revokes_what_went_away_and_grants_what_is_new():
+    changed = mariadb.set_grants_sql("shop", "localhost", ["app"], ["shop", "other"])
+    assert changed == (
+        "REVOKE ALL PRIVILEGES ON `app`.* FROM `shop`@`localhost`;\n"
+        "GRANT ALL PRIVILEGES ON `other`.* TO `shop`@`localhost`;\n"
+        "GRANT ALL PRIVILEGES ON `shop`.* TO `shop`@`localhost`;"
+    )
+    assert mariadb.set_grants_sql("shop", "127.0.0.1", ["app"], ["app"]) is None
+    with pytest.raises(ValueError, match="system database"):
+        mariadb.set_grants_sql("shop", "localhost", [], ["phpmyadmin"])
+
+
 def test_overview_hides_system_schemas_and_remote_accounts():
     text = "\n".join(
         [
             "db\tmysql",
             "db\tapp",
+            "db\tphpmyadmin",
             "db\tinformation_schema",
             "user\troot\tlocalhost",
+            "user\tmysql\tlocalhost",
+            "user\tphpmyadmin\tlocalhost",
             "user\tapp\tlocalhost",
             "user\tremote\t%",
             "grant\tapp\tlocalhost\tapp",
             "grant\tapp\tlocalhost\tmysql",
+            "grant\tapp\tlocalhost\tphpmyadmin",
+            "grant\tphpmyadmin\tlocalhost\tphpmyadmin",
             "grant\troot\tlocalhost\tapp",
         ]
     )

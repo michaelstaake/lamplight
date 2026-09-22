@@ -13,16 +13,21 @@ import subprocess
 
 from . import systemops
 
-# Schemas and accounts the server ships with. People manage their own
-# databases here; these stay on the mysql client.
-SYSTEM_DATABASES = frozenset({"information_schema", "mysql", "performance_schema", "sys"})
+# Schemas and accounts the server ships with, plus the phpMyAdmin package's
+# own database and logins. People manage their own databases here; these stay
+# off this page so they cannot be dropped from the panel.
+SYSTEM_DATABASES = frozenset(
+    {"information_schema", "mysql", "performance_schema", "phpmyadmin", "sys"}
+)
 SYSTEM_USERS = frozenset(
     {
         "debian-sys-maint",
         "mariadb.sys",
+        "mysql",
         "mysql.infoschema",
         "mysql.session",
         "mysql.sys",
+        "phpmyadmin",
         "root",
     }
 )
@@ -106,6 +111,18 @@ def clean_grant(raw: object) -> str | None:
     return clean_database(raw)
 
 
+def clean_databases(raw: object) -> list[str]:
+    """The databases an account should be able to use, with duplicates removed."""
+    if not isinstance(raw, list):
+        raise ValueError("databases must be a list")
+    names: list[str] = []
+    for item in raw:
+        name = clean_database(item)
+        if name not in names:
+            names.append(name)
+    return names
+
+
 def create_database_sql(name: str) -> str:
     return f"CREATE DATABASE {_quote_ident(clean_database(name))} CHARACTER SET utf8mb4;"
 
@@ -137,6 +154,28 @@ def set_password_sql(name: str, host: str, password: str) -> str:
     return _script([_SQL_MODE, f"ALTER USER {account} IDENTIFIED BY {_quote_literal(secret)}"])
 
 
+def set_grants_sql(name: str, host: str, current: list[str], desired: list[str]) -> str | None:
+    """Grant and revoke database-level access so `current` becomes `desired`.
+
+    No statement when the two sets already match. Each grant is every privilege
+    on that database, which is the same access creating a user can hand out.
+    """
+    account = _account(clean_user(name), clean_host(host))
+    have = {clean_database(database) for database in current}
+    want = {clean_database(database) for database in desired}
+    statements = [
+        f"REVOKE ALL PRIVILEGES ON {_quote_ident(database)}.* FROM {account}"
+        for database in sorted(have - want)
+    ]
+    statements += [
+        f"GRANT ALL PRIVILEGES ON {_quote_ident(database)}.* TO {account}"
+        for database in sorted(want - have)
+    ]
+    if not statements:
+        return None
+    return _script(statements)
+
+
 def create_database(name: object) -> None:
     execute(create_database_sql(clean_database(name)))
 
@@ -160,6 +199,31 @@ def drop_user(name: object, host: object) -> None:
 def set_password(name: object, host: object, password: object) -> None:
     secret = clean_password(password)
     execute(set_password_sql(clean_user(name), clean_host(host), secret), secret=secret)
+
+
+def set_grants(name: object, host: object, databases: object) -> None:
+    """Make `name`@`host` able to use exactly the databases in `databases`."""
+    user = clean_user(name)
+    host_name = clean_host(host)
+    desired = clean_databases(databases)
+    listed = overview()
+    known = set(listed["databases"])
+    missing = [database for database in desired if database not in known]
+    if missing:
+        raise ValueError(f"{missing[0]} is not a database")
+    match = next(
+        (
+            account
+            for account in listed["users"]
+            if account["name"] == user and account["host"] == host_name
+        ),
+        None,
+    )
+    if match is None:
+        raise ValueError(f"no such user {user}@{host_name}")
+    sql = set_grants_sql(user, host_name, match["databases"], desired)
+    if sql:
+        execute(sql)
 
 
 def overview() -> dict:

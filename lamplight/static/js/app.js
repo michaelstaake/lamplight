@@ -69,19 +69,26 @@ async function swap(target, url) {
 
 // Every bit of component markup is server-rendered, so a refresh is a fetch of
 // the same partial the page was built from — there is no second copy here.
+function closeModals() {
+  document.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
+}
+
 async function refresh() {
   const panel = document.getElementById("component-panel");
   const stack = document.getElementById("stack-grid");
   const phpPanel = document.getElementById("php-panel");
   const mariadbPanel = document.getElementById("mariadb-panel");
-  if (panel) {
-    const source = serviceLog()?.dataset.source;
-    const query = source ? `?source=${encodeURIComponent(source)}` : "";
-    await swap(panel, `/partials/component/${panel.dataset.id}${query}`);
-  }
+  const logPanel = document.getElementById("service-log-panel");
+  const source = serviceLog()?.dataset.source;
+  closeModals();
+  if (panel) await swap(panel, `/partials/component/${panel.dataset.id}`);
   if (stack) await swap(stack, "/partials/stack");
   if (phpPanel) await swap(phpPanel, "/partials/php");
   if (mariadbPanel) await swap(mariadbPanel, "/partials/mariadb");
+  if (logPanel) {
+    const query = source ? `?source=${encodeURIComponent(source)}` : "";
+    await swap(logPanel, `/partials/component/${logPanel.dataset.id}/log${query}`);
+  }
   await refreshNav();
   bindServiceLog();
 }
@@ -150,6 +157,31 @@ document.addEventListener("click", async (event) => {
   }
   if (event.target.closest("#log-pause")) {
     setFollow(false);
+    return;
+  }
+
+  const closer = event.target.closest("[data-mariadb-close]");
+  if (closer) {
+    event.preventDefault();
+    closer.closest("dialog")?.close();
+    return;
+  }
+  if (event.target.classList?.contains("modal") && event.target.tagName === "DIALOG") {
+    event.target.close();
+    return;
+  }
+
+  const manage = event.target.closest("[data-mariadb-manage]");
+  if (manage) {
+    event.preventDefault();
+    openManage(manage);
+    return;
+  }
+
+  const opener = event.target.closest("[data-mariadb-open]");
+  if (opener) {
+    event.preventDefault();
+    openMariaDbModal(opener.dataset.mariadbOpen, opener);
     return;
   }
 
@@ -281,36 +313,92 @@ const FORMS = {
   },
   "mariadb-user-form": async (form) => {
     const data = new FormData(form);
-    const database = data.get("database");
     await api("/api/mariadb/users", {
       method: "POST",
       body: JSON.stringify({
         name: data.get("name"),
         host: data.get("host") || "localhost",
         password: data.get("password"),
-        database: database || null,
+        database: null,
       }),
     });
     toast("User created");
     await refresh();
   },
+  "mariadb-grants-form": async (form) => {
+    const data = new FormData(form);
+    await api("/api/mariadb/users/grants", {
+      method: "POST",
+      body: JSON.stringify({
+        name: data.get("name"),
+        host: data.get("host"),
+        databases: data.getAll("database"),
+      }),
+    });
+    toast("Access updated");
+    await refresh();
+  },
   "mariadb-password-form": async (form) => {
     const data = new FormData(form);
-    const account = String(data.get("account") || "");
-    const at = account.lastIndexOf("@");
-    if (at <= 0) throw new Error("Choose an account");
     await api("/api/mariadb/users/password", {
       method: "POST",
       body: JSON.stringify({
-        name: account.slice(0, at),
-        host: account.slice(at + 1),
+        name: data.get("name"),
+        host: data.get("host"),
         password: data.get("password"),
       }),
     });
     toast("Password updated");
     await refresh();
   },
+  "mariadb-delete-form": async (form) => {
+    const data = new FormData(form);
+    await api("/api/mariadb/users/drop", {
+      method: "POST",
+      body: JSON.stringify({ name: data.get("name"), host: data.get("host") }),
+    });
+    toast("User dropped");
+    await refresh();
+  },
 };
+
+function mariaDbDialog(name) {
+  return document.getElementById(`mariadb-${name}-modal`);
+}
+
+function applyAccount(dialog, name, host) {
+  dialog.querySelectorAll('[data-field="name"]').forEach((el) => { el.value = name; });
+  dialog.querySelectorAll('[data-field="host"]').forEach((el) => { el.value = host; });
+  dialog.querySelectorAll("[data-account]").forEach((el) => { el.textContent = `${name}@${host}`; });
+}
+
+function openManage(button) {
+  const dialog = mariaDbDialog("manage");
+  if (!dialog) return;
+  applyAccount(dialog, button.dataset.name || "", button.dataset.host || "");
+  const granted = new Set((button.dataset.databases || "").split(",").filter(Boolean));
+  dialog.querySelectorAll('input[name="database"]').forEach((input) => {
+    input.checked = granted.has(input.value);
+  });
+  if (!dialog.open) dialog.showModal();
+}
+
+function openMariaDbModal(name, source) {
+  const dialog = mariaDbDialog(name);
+  if (!dialog) return;
+  const from = source?.closest("dialog");
+  if (from && from !== dialog) {
+    const accountName = from.querySelector('[data-field="name"]')?.value || "";
+    const host = from.querySelector('[data-field="host"]')?.value || "";
+    applyAccount(dialog, accountName, host);
+  }
+  if (name === "database" || name === "user") dialog.querySelector("form")?.reset();
+  if (name === "password") {
+    const input = dialog.querySelector('input[name="password"]');
+    if (input) input.value = "";
+  }
+  if (!dialog.open) dialog.showModal();
+}
 
 async function dropMariaDb(button) {
   const kind = button.dataset.mariadbDrop;

@@ -2,132 +2,182 @@
    partial, so this markup has no second copy in JavaScript. #}
 {% set ready = mariadb.active and not mariadb.error %}
 
-<section class="panel">
-  <header class="panel-head">
-    <h2>Databases</h2>
-    <span class="muted">{{ mariadb.databases | length }}</span>
-  </header>
+<div class="columns">
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Databases</h2>
+      <button class="btn primary" type="button" data-mariadb-open="database"
+              {% if not ready %}disabled{% endif %}>Add</button>
+    </header>
 
-  {% if not mariadb.active %}
-    <p class="hint">Start MariaDB to create databases and users.</p>
-  {% elif mariadb.error %}
-    <p class="hint">{{ mariadb.error }}</p>
-  {% endif %}
+    {% if not mariadb.active %}
+      <p class="hint">Start MariaDB to create databases and users.</p>
+    {% elif mariadb.error %}
+      <p class="hint">{{ mariadb.error }}</p>
+    {% endif %}
 
-  {% if mariadb.databases %}
-    <table class="mini account-table">
-      <thead>
-        <tr><th>Name</th><th></th></tr>
-      </thead>
-      <tbody>
-        {% for name in mariadb.databases %}
-          <tr>
-            <td class="mono">{{ name }}</td>
-            <td class="row-end">
-              <button class="btn danger" type="button" data-mariadb-drop="database"
-                      data-name="{{ name }}" {% if not ready %}disabled{% endif %}>Drop</button>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% elif ready %}
-    <p class="hint">No databases yet.</p>
-  {% endif %}
+    {% if mariadb.databases %}
+      <table class="mini account-table">
+        <thead>
+          <tr><th>Name</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for name in mariadb.databases %}
+            <tr>
+              <td class="mono">{{ name }}</td>
+              <td class="row-end">
+                <button class="btn danger" type="button" data-mariadb-drop="database"
+                        data-name="{{ name }}" {% if not ready %}disabled{% endif %}>Drop</button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% elif ready %}
+      <p class="hint">No databases yet.</p>
+    {% endif %}
+  </section>
 
-  <form class="form" id="mariadb-database-form">
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Users</h2>
+      <button class="btn primary" type="button" data-mariadb-open="user"
+              {% if not ready %}disabled{% endif %}>Add</button>
+    </header>
+
+    <p class="hint">Accounts connect from this machine only (<span class="mono">localhost</span> or
+      <span class="mono">127.0.0.1</span>). Other hosts stay on the mysql client.</p>
+
+    {% if mariadb.users %}
+      <table class="mini account-table">
+        <thead>
+          <tr><th>Account</th><th>Databases</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for user in mariadb.users %}
+            <tr>
+              <td class="mono">{{ user.name }}@{{ user.host }}</td>
+              <td class="mono">{{ user.databases | join(', ') or '—' }}</td>
+              <td class="row-end">
+                <button class="btn" type="button" data-mariadb-manage
+                        data-name="{{ user.name }}" data-host="{{ user.host }}"
+                        data-databases="{{ user.databases | join(',') }}"
+                        {% if not ready %}disabled{% endif %}>Manage</button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% elif ready %}
+      <p class="hint">No users yet.</p>
+    {% endif %}
+  </section>
+</div>
+
+<dialog class="modal" id="mariadb-database-modal" aria-labelledby="mariadb-database-title">
+  <form class="form modal-body" id="mariadb-database-form" method="dialog">
+    <header class="modal-head">
+      <h2 id="mariadb-database-title">New database</h2>
+      <button type="button" class="linkish" data-mariadb-close>Close</button>
+    </header>
     <label>
-      New database
+      Name
       <input type="text" name="name" autocomplete="off" spellcheck="false" placeholder="app"
              {% if not ready %}disabled{% endif %} required>
     </label>
     <button class="btn primary" type="submit" {% if not ready %}disabled{% endif %}>Create database</button>
   </form>
-</section>
+</dialog>
 
-<section class="panel">
-  <header class="panel-head">
-    <h2>Users</h2>
-    <span class="muted">{{ mariadb.users | length }}</span>
-  </header>
-
-  <p class="hint">Accounts connect from this machine only (<span class="mono">localhost</span> or
-    <span class="mono">127.0.0.1</span>). Other hosts stay on the mysql client.</p>
-
-  {% if mariadb.users %}
-    <table class="mini account-table">
-      <thead>
-        <tr><th>Account</th><th>Databases</th><th></th></tr>
-      </thead>
-      <tbody>
-        {% for user in mariadb.users %}
-          <tr>
-            <td class="mono">{{ user.name }}@{{ user.host }}</td>
-            <td class="mono">{{ user.databases | join(', ') or '—' }}</td>
-            <td class="row-end">
-              <button class="btn danger" type="button" data-mariadb-drop="user"
-                      data-name="{{ user.name }}" data-host="{{ user.host }}"
-                      {% if not ready %}disabled{% endif %}>Drop</button>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% elif ready %}
-    <p class="hint">No users yet.</p>
-  {% endif %}
-
-  <form class="form" id="mariadb-user-form">
-    <div class="opt-grid">
-      <label>
-        User
-        <input type="text" name="name" autocomplete="off" spellcheck="false" placeholder="app"
-               {% if not ready %}disabled{% endif %} required>
-      </label>
-      <label>
-        Host
-        <select name="host" {% if not ready %}disabled{% endif %}>
-          <option value="localhost" selected>localhost</option>
-          <option value="127.0.0.1">127.0.0.1</option>
-        </select>
-      </label>
-      <label>
-        Password
-        <input type="password" name="password" autocomplete="new-password"
-               {% if not ready %}disabled{% endif %} required>
-      </label>
-      <label>
-        Database
-        <select name="database" {% if not ready %}disabled{% endif %}>
-          <option value="">No privileges yet</option>
-          {% for name in mariadb.databases %}
-            <option value="{{ name }}">{{ name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-    </div>
-    <p class="hint">Picking a database grants every privilege on that database.</p>
+<dialog class="modal" id="mariadb-user-modal" aria-labelledby="mariadb-user-title">
+  <form class="form modal-body" id="mariadb-user-form" method="dialog">
+    <header class="modal-head">
+      <h2 id="mariadb-user-title">New user</h2>
+      <button type="button" class="linkish" data-mariadb-close>Close</button>
+    </header>
+    <label>
+      User
+      <input type="text" name="name" autocomplete="off" spellcheck="false" placeholder="app"
+             {% if not ready %}disabled{% endif %} required>
+    </label>
+    <label>
+      Host
+      <select name="host" {% if not ready %}disabled{% endif %}>
+        <option value="localhost" selected>localhost</option>
+        <option value="127.0.0.1">127.0.0.1</option>
+      </select>
+    </label>
+    <label>
+      Password
+      <input type="password" name="password" autocomplete="new-password"
+             {% if not ready %}disabled{% endif %} required>
+    </label>
+    <p class="hint">Access to databases is set afterward, from Manage.</p>
     <button class="btn primary" type="submit" {% if not ready %}disabled{% endif %}>Create user</button>
   </form>
+</dialog>
 
-  {% if mariadb.users %}
-    <form class="form" id="mariadb-password-form">
-      <div class="opt-grid">
-        <label>
-          Account
-          <select name="account" {% if not ready %}disabled{% endif %}>
-            {% for user in mariadb.users %}
-              <option value="{{ user.name }}@{{ user.host }}">{{ user.name }}@{{ user.host }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>
-          New password
-          <input type="password" name="password" autocomplete="new-password"
-                 {% if not ready %}disabled{% endif %} required>
-        </label>
-      </div>
-      <button class="btn primary" type="submit" {% if not ready %}disabled{% endif %}>Set password</button>
+<dialog class="modal" id="mariadb-manage-modal" aria-labelledby="mariadb-manage-title">
+  <div class="modal-body">
+    <header class="modal-head">
+      <h2 id="mariadb-manage-title">Manage <span class="mono" data-account></span></h2>
+      <button type="button" class="linkish" data-mariadb-close>Close</button>
+    </header>
+    <form class="form" id="mariadb-grants-form" method="dialog">
+      <input type="hidden" name="name" data-field="name">
+      <input type="hidden" name="host" data-field="host">
+      {% if mariadb.databases %}
+        <p class="hint">Every privilege on each selected database.</p>
+        <div class="check-list">
+          {% for name in mariadb.databases %}
+            <label class="check">
+              <input type="checkbox" name="database" value="{{ name }}"
+                     {% if not ready %}disabled{% endif %}>
+              <span class="mono">{{ name }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        <button class="btn primary" type="submit" {% if not ready %}disabled{% endif %}>Save access</button>
+      {% else %}
+        <p class="hint">No databases yet. Create one, then grant access here.</p>
+      {% endif %}
     </form>
-  {% endif %}
-</section>
+    <div class="actions">
+      <button class="btn" type="button" data-mariadb-open="password"
+              {% if not ready %}disabled{% endif %}>Change password</button>
+      <button class="btn danger" type="button" data-mariadb-open="delete"
+              {% if not ready %}disabled{% endif %}>Delete</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="modal" id="mariadb-password-modal" aria-labelledby="mariadb-password-title">
+  <form class="form modal-body" id="mariadb-password-form" method="dialog">
+    <header class="modal-head">
+      <h2 id="mariadb-password-title">Change password</h2>
+      <button type="button" class="linkish" data-mariadb-close>Close</button>
+    </header>
+    <p class="hint">New password for <span class="mono" data-account></span>.</p>
+    <input type="hidden" name="name" data-field="name">
+    <input type="hidden" name="host" data-field="host">
+    <label>
+      New password
+      <input type="password" name="password" autocomplete="new-password"
+             {% if not ready %}disabled{% endif %} required>
+    </label>
+    <button class="btn primary" type="submit" {% if not ready %}disabled{% endif %}>Save</button>
+  </form>
+</dialog>
+
+<dialog class="modal" id="mariadb-delete-modal" aria-labelledby="mariadb-delete-title">
+  <form class="form modal-body" id="mariadb-delete-form" method="dialog">
+    <header class="modal-head">
+      <h2 id="mariadb-delete-title">Delete user</h2>
+      <button type="button" class="linkish" data-mariadb-close>Close</button>
+    </header>
+    <p class="hint">Delete <span class="mono" data-account></span>? The account can no longer connect. Databases stay.</p>
+    <input type="hidden" name="name" data-field="name">
+    <input type="hidden" name="host" data-field="host">
+    <button class="btn danger" type="submit" {% if not ready %}disabled{% endif %}>Delete</button>
+  </form>
+</dialog>

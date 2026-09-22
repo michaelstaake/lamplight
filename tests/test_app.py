@@ -117,6 +117,17 @@ def test_component_partial_matches_the_page_panel(client):
     assert partial.strip() in client.get("/c/mariadb").get_data(as_text=True)
 
 
+def test_log_partial_matches_the_page_and_is_empty_before_install(client):
+    assert client.get("/partials/component/apache/log").get_data(as_text=True) == ""
+    job_id = client.post("/api/components/apache/install").get_json()["job_id"]
+    wait_for_job(client, job_id)
+    partial = client.get("/partials/component/apache/log").get_data(as_text=True)
+    page = client.get("/c/apache").get_data(as_text=True)
+    assert 'id="service-log"' in partial
+    assert partial.strip() in page
+    assert page.index('id="component-panel"') < page.index('id="service-log"')
+
+
 def test_component_page_shows_the_service_log_not_the_job_log(client):
     """The job log says Lamplight restarted Apache. This panel is Apache's own."""
     job_id = client.post("/api/components/apache/install").get_json()["job_id"]
@@ -606,8 +617,13 @@ def _mariadb_running(host, monkeypatch, stdout=""):
 _MARIADB_LISTING = "\n".join(
     [
         "db\tapp",
+        "db\tphpmyadmin",
+        "db\tmysql",
         "user\tapp\tlocalhost",
+        "user\tmysql\tlocalhost",
+        "user\tphpmyadmin\t127.0.0.1",
         "grant\tapp\tlocalhost\tapp",
+        "grant\tphpmyadmin\t127.0.0.1\tphpmyadmin",
     ]
 )
 
@@ -632,10 +648,19 @@ def test_mariadb_page_lists_databases_and_users(client, host, monkeypatch):
     assert 'id="mariadb-database-form"' in body
     assert 'id="mariadb-user-form"' in body
     assert 'id="mariadb-password-form"' in body
+    assert 'id="mariadb-delete-form"' in body
+    assert 'id="mariadb-grants-form"' in body
+    assert 'data-mariadb-open="database"' in body
+    assert 'data-mariadb-open="user"' in body
+    assert "data-mariadb-manage" in body
+    assert 'data-mariadb-drop="user"' not in body
     assert "app@localhost" in body
     assert ">app<" in body
+    assert body.index('id="mariadb-panel"') < body.index('id="service-log"')
     partial = client.get("/partials/mariadb").get_data(as_text=True)
     assert partial.strip() in body
+    assert "phpmyadmin" not in partial
+    assert 'data-name="mysql"' not in partial
     assert 'id="mariadb-panel"' not in client.get("/c/apache").get_data(as_text=True)
 
     listed = client.get("/api/mariadb").get_json()
@@ -696,13 +721,69 @@ def test_creating_and_dropping_databases_and_users(client, host, monkeypatch):
     assert client.get("/api/jobs").get_json()["jobs"] == []
 
 
+def test_setting_user_grants_reads_the_server_then_writes_the_difference(client, host, monkeypatch):
+    listing = "\n".join(
+        [
+            "db\tapp",
+            "db\tshop",
+            "user\tapp\tlocalhost",
+            "grant\tapp\tlocalhost\tapp",
+        ]
+    )
+    calls = _mariadb_running(host, monkeypatch, listing)
+    same = client.post(
+        "/api/mariadb/users/grants",
+        json={"name": "app", "host": "localhost", "databases": ["app"]},
+    )
+    assert same.status_code == 200
+    assert len(calls) == 1
+    assert "SCHEMATA" in calls[0]["sql"]
+
+    changed = client.post(
+        "/api/mariadb/users/grants",
+        json={"name": "app", "host": "localhost", "databases": ["shop"]},
+    )
+    assert changed.status_code == 200
+    assert "REVOKE ALL PRIVILEGES ON `app`.* FROM `app`@`localhost`" in calls[-1]["sql"]
+    assert "GRANT ALL PRIVILEGES ON `shop`.* TO `app`@`localhost`" in calls[-1]["sql"]
+    assert calls[-1]["secret"] is None
+
+    missing = client.post(
+        "/api/mariadb/users/grants",
+        json={"name": "app", "host": "localhost", "databases": ["other"]},
+    )
+    assert missing.status_code == 400
+    assert "not a database" in missing.get_json()["error"]
+
+    unknown = client.post(
+        "/api/mariadb/users/grants",
+        json={"name": "nobody", "host": "localhost", "databases": []},
+    )
+    assert unknown.status_code == 400
+    assert "no such user" in unknown.get_json()["error"]
+
+
 def test_protected_names_and_a_bad_host_never_reach_the_client(client, host, monkeypatch):
     calls = _mariadb_running(host, monkeypatch)
     refused = [
         ("/api/mariadb/databases", {"name": "mysql"}),
+        ("/api/mariadb/databases", {"name": "phpmyadmin"}),
         ("/api/mariadb/databases/drop", {"name": "information_schema"}),
+        ("/api/mariadb/databases/drop", {"name": "phpmyadmin"}),
         ("/api/mariadb/users", {"name": "root", "password": "secret", "host": "localhost"}),
+        ("/api/mariadb/users", {"name": "mysql", "password": "secret", "host": "localhost"}),
+        ("/api/mariadb/users", {"name": "phpmyadmin", "password": "secret", "host": "localhost"}),
         ("/api/mariadb/users/drop", {"name": "mysql.sys", "host": "localhost"}),
+        ("/api/mariadb/users/drop", {"name": "mysql", "host": "localhost"}),
+        ("/api/mariadb/users/drop", {"name": "phpmyadmin", "host": "localhost"}),
+        (
+            "/api/mariadb/users/grants",
+            {"name": "phpmyadmin", "host": "localhost", "databases": []},
+        ),
+        (
+            "/api/mariadb/users/grants",
+            {"name": "mysql", "host": "localhost", "databases": ["shop"]},
+        ),
         (
             "/api/mariadb/users/password",
             {"name": "debian-sys-maint", "host": "localhost", "password": "x"},
@@ -735,7 +816,9 @@ def test_mariadb_endpoints_are_behind_the_token(app):
     assert guest.post("/api/mariadb/users", json={"name": "shop"}).status_code == 401
     assert guest.post("/api/mariadb/users/drop", json={"name": "shop"}).status_code == 401
     assert guest.post("/api/mariadb/users/password", json={"name": "shop"}).status_code == 401
+    assert guest.post("/api/mariadb/users/grants", json={"name": "shop"}).status_code == 401
     assert guest.get("/partials/mariadb").status_code == 302
+    assert guest.get("/partials/component/mariadb/log").status_code == 302
 
 
 def test_job_ids_are_random_strings_not_a_counter(client):

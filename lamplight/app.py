@@ -244,7 +244,16 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
     @require_auth
     def component_partial(component_id: str):
         item = component_view(component_id)
-        return render_template("_component.html", item=item, **service_log_context(item))
+        return render_template("_component.html", item=item)
+
+    @app.get("/partials/component/<component_id>/log")
+    @require_auth
+    def component_log_partial(component_id: str):
+        item = component_view(component_id)
+        context = service_log_context(item)
+        if not context:
+            return ""
+        return render_template("_service_log.html", item=item, **context)
 
     @app.get("/partials/php")
     @require_auth
@@ -432,6 +441,14 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
     def api_mariadb_password():
         def work(body: dict) -> None:
             mariadb.set_password(body.get("name"), body.get("host"), body.get("password"))
+
+        return _mariadb_action(work)
+
+    @app.post("/api/mariadb/users/grants")
+    @require_auth
+    def api_mariadb_grants():
+        def work(body: dict) -> None:
+            mariadb.set_grants(body.get("name"), body.get("host"), body.get("databases"))
 
         return _mariadb_action(work)
 

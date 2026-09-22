@@ -1,6 +1,6 @@
-{# Everything about one component that a job can change: status, controls, and
-   its own logs once installed. The page and the post-job refresh both render
-   exactly this. #}
+{# Status and controls for one component. Logs are a separate partial so the
+   MariaDB and PHP tools can sit above them. The page and the post-job refresh
+   both render exactly this. #}
 <section class="panel">
   <header class="panel-head">
     <h2>Status</h2>
@@ -63,7 +63,3 @@
     <button type="button" class="linkish" id="job-details-link">Details</button>
   </div>
 </section>
-
-{% if sources is defined %}
-  {% include "_service_log.html" %}
-{% endif %}
