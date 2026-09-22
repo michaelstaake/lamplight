@@ -72,6 +72,16 @@ sudo ./install.sh
 
 That copies the new code to `/opt/lamplight`, rebuilds the virtualenv, and restarts `lamplight.service`. The panel version in the sidebar changes when the new process is up. `/var/lib/lamplight` and `/etc/lamplight` stay, including the access token, so the URL you already have keeps working. Apache, MariaDB, PHP, phpMyAdmin, and Mailpit are left alone.
 
+`chmod +x` changes `install.sh` on disk. The next `git pull` can refuse because of that local change and suggest `git stash`. Discard it, then set the execute bit again:
+
+```bash
+git reset --hard
+chmod +x install.sh
+sudo ./install.sh
+```
+
+`git reset --hard` only resets the checkout. Data in `/var/lib/lamplight` and config in `/etc/lamplight` sit outside the repo and are left as they are.
+
 `install.sh` rewrites `/etc/lamplight/lamplight.env` from its defaults. If you moved the panel off port 3847, pass that port again or the file goes back to `127.0.0.1:3847`:
 
 ```bash
