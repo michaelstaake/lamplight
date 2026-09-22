@@ -37,8 +37,11 @@ Lamplight downloads a **pinned release binary and verifies its SHA256** before i
 ```bash
 git clone https://github.com/michaelstaake/lamplight.git
 cd lamplight
+chmod +x install.sh
 sudo ./install.sh
 ```
+
+`chmod +x` is required. `sudo` runs the script as root, but a file without the execute bit still fails with "Permission denied".
 
 `install.sh` puts the app in `/opt/lamplight`, data in `/var/lib/lamplight`, config in
 `/etc/lamplight`, and enables `lamplight.service`. It does **not** install the LAMP stack - you do that using the panel afterward
@@ -162,6 +165,7 @@ authenticating proxy in front of it if it has to be reachable at all.
 ## Uninstall the panel
 
 ```bash
+chmod +x uninstall.sh
 sudo ./uninstall.sh          # removes /opt/lamplight, keeps data and config
 sudo PURGE=1 ./uninstall.sh  # also deletes /var/lib/lamplight and /etc/lamplight
 ```
