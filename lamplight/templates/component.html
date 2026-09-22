@@ -16,4 +16,10 @@
     {% include "_php.html" %}
   </div>
 {% endif %}
+
+{% if item.id == 'mariadb' %}
+  <div id="mariadb-panel">
+    {% if mariadb %}{% include "_mariadb.html" %}{% endif %}
+  </div>
+{% endif %}
 {% endblock %}

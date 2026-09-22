@@ -50,8 +50,20 @@ class ServiceState:
     memory: int | None = None
 
 
-def run(argv: list[str], *, timeout: int = DEFAULT_TIMEOUT) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
+def run(
+    argv: list[str],
+    *,
+    timeout: int = DEFAULT_TIMEOUT,
+    input: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run a command without a shell.
+
+    `input` is the process's stdin. Callers that have a secret put it here
+    rather than in `argv`, so it does not show up in the process list.
+    """
+    return subprocess.run(
+        argv, capture_output=True, text=True, timeout=timeout, check=False, input=input
+    )
 
 
 def which(name: str) -> str | None:

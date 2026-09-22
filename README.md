@@ -153,6 +153,20 @@ the file stay `curl`; apt installs `php8.5-curl`.
 Values are validated before anything is written — an option only accepts the shape its directive
 takes, so nothing typed into the browser can become a second line of the `.ini`.
 
+## Managing MariaDB
+
+The MariaDB page can create and drop databases and local accounts once the service is running.
+The `mysql` client is still there for anything else: imports, a grant on one table, or an account
+that connects from another host.
+
+A new database uses `utf8mb4`. A new user is `name@localhost` or `name@127.0.0.1`, with a
+password, and optionally every privilege on one database you pick. System schemas (`mysql`,
+`information_schema`, `performance_schema`, `sys`) and the accounts that ship with the server are
+not listed here, and the page will not drop them.
+
+Dropping a database deletes its tables. **Remove** on the MariaDB card does not: that still leaves
+`/var/lib/mysql` alone.
+
 ## Removing things
 
 **Remove** on a card runs `apt-get remove` (not `purge`) and then `apt-get autoremove`. Your
@@ -182,6 +196,12 @@ proxy this panel to the internet.
   written, and an extension name is only ever used as `php-<name>` (or `php8.5-<name>` when a
   version is pinned) in an apt argument list — so nothing typed into the browser can become a
   second line of the `.ini`.
+- **MariaDB accounts.** Creating a database or user runs the `mysql` client as root over the unix
+  socket. The statement is written to the client's standard input, so a password is not on the
+  command line. Names are letters, digits, and underscores; hosts are only `localhost` and
+  `127.0.0.1`. System databases and the accounts MariaDB ships with cannot be dropped from the
+  page. The password is kept out of the job log, because these actions are not jobs. The token is
+  still equivalent to root for them.
 - **PHP versions.** The selector accepts only 8.3, 8.4, 8.5, or blank. Surý's repository is added
   only when a chosen version is not already in apt. The version never becomes part of a shell
   command or a URL; a Debian codename is written into `sources.list` only when it is a single word

@@ -73,6 +73,7 @@ async function refresh() {
   const panel = document.getElementById("component-panel");
   const stack = document.getElementById("stack-grid");
   const phpPanel = document.getElementById("php-panel");
+  const mariadbPanel = document.getElementById("mariadb-panel");
   if (panel) {
     const source = serviceLog()?.dataset.source;
     const query = source ? `?source=${encodeURIComponent(source)}` : "";
@@ -80,6 +81,7 @@ async function refresh() {
   }
   if (stack) await swap(stack, "/partials/stack");
   if (phpPanel) await swap(phpPanel, "/partials/php");
+  if (mariadbPanel) await swap(mariadbPanel, "/partials/mariadb");
   await refreshNav();
   bindServiceLog();
 }
@@ -148,6 +150,13 @@ document.addEventListener("click", async (event) => {
   }
   if (event.target.closest("#log-pause")) {
     setFollow(false);
+    return;
+  }
+
+  const drop = event.target.closest("[data-mariadb-drop]");
+  if (drop) {
+    event.preventDefault();
+    await dropMariaDb(drop);
     return;
   }
 
@@ -264,7 +273,66 @@ const FORMS = {
     const { job_id: jobId } = await api("/api/php/options", { method: "POST", body });
     streamJob(jobId);
   },
+  "mariadb-database-form": async (form) => {
+    const name = new FormData(form).get("name");
+    await api("/api/mariadb/databases", { method: "POST", body: JSON.stringify({ name }) });
+    toast("Database created");
+    await refresh();
+  },
+  "mariadb-user-form": async (form) => {
+    const data = new FormData(form);
+    const database = data.get("database");
+    await api("/api/mariadb/users", {
+      method: "POST",
+      body: JSON.stringify({
+        name: data.get("name"),
+        host: data.get("host") || "localhost",
+        password: data.get("password"),
+        database: database || null,
+      }),
+    });
+    toast("User created");
+    await refresh();
+  },
+  "mariadb-password-form": async (form) => {
+    const data = new FormData(form);
+    const account = String(data.get("account") || "");
+    const at = account.lastIndexOf("@");
+    if (at <= 0) throw new Error("Choose an account");
+    await api("/api/mariadb/users/password", {
+      method: "POST",
+      body: JSON.stringify({
+        name: account.slice(0, at),
+        host: account.slice(at + 1),
+        password: data.get("password"),
+      }),
+    });
+    toast("Password updated");
+    await refresh();
+  },
 };
+
+async function dropMariaDb(button) {
+  const kind = button.dataset.mariadbDrop;
+  const name = button.dataset.name;
+  const host = button.dataset.host;
+  const label = host ? `${name}@${host}` : name;
+  const question = kind === "database"
+    ? `Drop database ${name}? This deletes its tables.`
+    : `Drop user ${label}?`;
+  if (!confirm(question)) return;
+  button.disabled = true;
+  try {
+    const path = kind === "database" ? "/api/mariadb/databases/drop" : "/api/mariadb/users/drop";
+    const body = kind === "database" ? { name } : { name, host };
+    await api(path, { method: "POST", body: JSON.stringify(body) });
+    toast(kind === "database" ? "Database dropped" : "User dropped");
+    await refresh();
+  } catch (err) {
+    toast(err.message);
+    button.disabled = false;
+  }
+}
 
 document.addEventListener("submit", async (event) => {
   const handler = FORMS[event.target.id];

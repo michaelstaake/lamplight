@@ -584,6 +584,160 @@ def test_pages_have_a_heading_and_no_subtitle(client):
         assert ">Notes</h2>" not in body, path
 
 
+# -- mariadb databases and users ------------------------------------------
+
+
+def _mariadb_running(host, monkeypatch, stdout=""):
+    """MariaDB is up, and the client records SQL instead of connecting."""
+    from lamplight import mariadb, systemops
+
+    host.apply("mariadb", "install")
+    monkeypatch.setattr(systemops, "is_root", lambda: True)
+    calls = []
+
+    def fake_execute(sql, *, secret=None):
+        calls.append({"sql": sql, "secret": secret})
+        return stdout
+
+    monkeypatch.setattr(mariadb, "execute", fake_execute)
+    return calls
+
+
+_MARIADB_LISTING = "\n".join(
+    [
+        "db\tapp",
+        "user\tapp\tlocalhost",
+        "grant\tapp\tlocalhost\tapp",
+    ]
+)
+
+
+def test_mariadb_tools_wait_until_it_is_installed(client, monkeypatch):
+    from lamplight import mariadb
+
+    def fail(sql, *, secret=None):
+        raise AssertionError("mysql should not be asked yet")
+
+    monkeypatch.setattr(mariadb, "execute", fail)
+    body = client.get("/c/mariadb").get_data(as_text=True)
+    assert 'id="mariadb-panel"' in body
+    assert 'id="mariadb-database-form"' not in body
+    assert client.get("/partials/mariadb").get_data(as_text=True) == ""
+    assert client.get("/api/mariadb").status_code == 409
+
+
+def test_mariadb_page_lists_databases_and_users(client, host, monkeypatch):
+    _mariadb_running(host, monkeypatch, _MARIADB_LISTING)
+    body = client.get("/c/mariadb").get_data(as_text=True)
+    assert 'id="mariadb-database-form"' in body
+    assert 'id="mariadb-user-form"' in body
+    assert 'id="mariadb-password-form"' in body
+    assert "app@localhost" in body
+    assert ">app<" in body
+    partial = client.get("/partials/mariadb").get_data(as_text=True)
+    assert partial.strip() in body
+    assert 'id="mariadb-panel"' not in client.get("/c/apache").get_data(as_text=True)
+
+    listed = client.get("/api/mariadb").get_json()
+    assert listed["databases"] == ["app"]
+    assert listed["users"] == [{"name": "app", "host": "localhost", "databases": ["app"]}]
+
+
+def test_mariadb_forms_stay_disabled_while_the_server_is_stopped(client, host, monkeypatch):
+    from lamplight import mariadb
+
+    host.apply("mariadb", "install")
+    host.components["mariadb"]["active"] = False
+
+    def fail(sql, *, secret=None):
+        raise AssertionError("a stopped server is not queried")
+
+    monkeypatch.setattr(mariadb, "execute", fail)
+    body = client.get("/c/mariadb").get_data(as_text=True)
+    assert "Start MariaDB" in body
+    assert 'type="submit" disabled' in body
+    assert client.post("/api/mariadb/databases", json={"name": "shop"}).status_code == 409
+
+
+def test_creating_and_dropping_databases_and_users(client, host, monkeypatch):
+    calls = _mariadb_running(host, monkeypatch, _MARIADB_LISTING)
+    created = client.post("/api/mariadb/databases", json={"name": "shop"})
+    assert created.status_code == 200
+    assert calls[-1]["sql"] == "CREATE DATABASE `shop` CHARACTER SET utf8mb4;"
+    assert calls[-1]["secret"] is None
+
+    user = client.post(
+        "/api/mariadb/users",
+        json={"name": "shop", "host": "127.0.0.1", "password": "s3cret-phrase", "database": "app"},
+    )
+    assert user.status_code == 200
+    assert "s3cret-phrase" not in user.get_data(as_text=True)
+    assert calls[-1]["secret"] == "s3cret-phrase"
+    assert "CREATE USER `shop`@`127.0.0.1` IDENTIFIED BY 's3cret-phrase'" in calls[-1]["sql"]
+    assert "GRANT ALL PRIVILEGES ON `app`.*" in calls[-1]["sql"]
+
+    password = client.post(
+        "/api/mariadb/users/password",
+        json={"name": "shop", "host": "localhost", "password": "next-phrase"},
+    )
+    assert password.status_code == 200
+    assert "next-phrase" not in password.get_data(as_text=True)
+    assert "ALTER USER `shop`@`localhost` IDENTIFIED BY 'next-phrase'" in calls[-1]["sql"]
+
+    dropped_user = client.post(
+        "/api/mariadb/users/drop", json={"name": "shop", "host": "localhost"}
+    )
+    assert dropped_user.status_code == 200
+    assert calls[-1]["sql"] == "DROP USER `shop`@`localhost`;"
+
+    dropped = client.post("/api/mariadb/databases/drop", json={"name": "shop"})
+    assert dropped.status_code == 200
+    assert calls[-1]["sql"] == "DROP DATABASE `shop`;"
+    assert client.get("/api/jobs").get_json()["jobs"] == []
+
+
+def test_protected_names_and_a_bad_host_never_reach_the_client(client, host, monkeypatch):
+    calls = _mariadb_running(host, monkeypatch)
+    refused = [
+        ("/api/mariadb/databases", {"name": "mysql"}),
+        ("/api/mariadb/databases/drop", {"name": "information_schema"}),
+        ("/api/mariadb/users", {"name": "root", "password": "secret", "host": "localhost"}),
+        ("/api/mariadb/users/drop", {"name": "mysql.sys", "host": "localhost"}),
+        (
+            "/api/mariadb/users/password",
+            {"name": "debian-sys-maint", "host": "localhost", "password": "x"},
+        ),
+        ("/api/mariadb/users", {"name": "shop", "password": "secret", "host": "%"}),
+        ("/api/mariadb/databases", {"name": "shop`; DROP DATABASE mysql"}),
+        ("/api/mariadb/users", ["nope"]),
+    ]
+    for path, payload in refused:
+        response = client.post(path, json=payload)
+        assert response.status_code == 400, path
+    assert calls == []
+
+
+def test_mariadb_changes_require_root(client, host, monkeypatch):
+    from lamplight import systemops
+
+    host.apply("mariadb", "install")
+    monkeypatch.setattr(systemops, "is_root", lambda: False)
+    response = client.post("/api/mariadb/databases", json={"name": "shop"})
+    assert response.status_code == 403
+    assert "must run as root" in response.get_json()["error"]
+
+
+def test_mariadb_endpoints_are_behind_the_token(app):
+    guest = app.test_client()
+    assert guest.get("/api/mariadb").status_code == 401
+    assert guest.post("/api/mariadb/databases", json={"name": "shop"}).status_code == 401
+    assert guest.post("/api/mariadb/databases/drop", json={"name": "shop"}).status_code == 401
+    assert guest.post("/api/mariadb/users", json={"name": "shop"}).status_code == 401
+    assert guest.post("/api/mariadb/users/drop", json={"name": "shop"}).status_code == 401
+    assert guest.post("/api/mariadb/users/password", json={"name": "shop"}).status_code == 401
+    assert guest.get("/partials/mariadb").status_code == 302
+
+
 def test_job_ids_are_random_strings_not_a_counter(client):
     first = client.post("/api/components/apache/install").get_json()["job_id"]
     wait_for_job(client, first)

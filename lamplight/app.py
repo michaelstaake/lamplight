@@ -21,7 +21,7 @@ from flask import (
     url_for,
 )
 
-from . import __version__, catalog, config, db, jobs, logsources, php, status, systemops
+from . import __version__, catalog, config, db, jobs, logsources, mariadb, php, status, systemops
 from .firewall import FIREWALL_ACTIONS
 from .installer import SERVICE_ACTIONS, Installer
 from .jobs import JobRunner, JobStore
@@ -68,6 +68,26 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
 
     def php_state() -> dict:
         return status.php_view(php.load_config(paths))
+
+    def mariadb_view() -> dict | None:
+        """Databases and accounts, once MariaDB is installed. None before that."""
+        item = component_view("mariadb")
+        if not item["installed"]:
+            return None
+        view = {
+            "installed": True,
+            "active": bool(item["active"]),
+            "databases": [],
+            "users": [],
+            "error": None,
+        }
+        if not item["active"]:
+            return view
+        try:
+            listed = mariadb.overview()
+        except (mariadb.MariaDbError, PermissionError) as exc:
+            return view | {"error": str(exc)}
+        return view | listed
 
     def component_view(component_id: str) -> dict:
         for item in state()["components"]:
@@ -176,6 +196,7 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
             "component.html",
             item=item,
             php=php_state() if component_id == "php" else None,
+            mariadb=mariadb_view() if component_id == "mariadb" else None,
             **service_log_context(item),
         )
 
@@ -229,6 +250,14 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
     @require_auth
     def php_partial():
         return render_template("_php.html", php=php_state())
+
+    @app.get("/partials/mariadb")
+    @require_auth
+    def mariadb_partial():
+        view = mariadb_view()
+        if view is None:
+            return ""
+        return render_template("_mariadb.html", mariadb=view)
 
     # -- api --------------------------------------------------------------
 
@@ -370,6 +399,47 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
 
         return start_job("php", "options", work)
 
+    @app.get("/api/mariadb")
+    @require_auth
+    def api_mariadb():
+        view = mariadb_view()
+        if view is None:
+            return jsonify({"error": "MariaDB is not installed"}), 409
+        return jsonify(view)
+
+    @app.post("/api/mariadb/databases")
+    @require_auth
+    def api_mariadb_create_database():
+        return _mariadb_action(lambda body: mariadb.create_database(body.get("name")))
+
+    @app.post("/api/mariadb/databases/drop")
+    @require_auth
+    def api_mariadb_drop_database():
+        return _mariadb_action(lambda body: mariadb.drop_database(body.get("name")))
+
+    @app.post("/api/mariadb/users")
+    @require_auth
+    def api_mariadb_create_user():
+        def work(body: dict) -> None:
+            mariadb.create_user(
+                body.get("name"), body.get("host"), body.get("password"), body.get("database")
+            )
+
+        return _mariadb_action(work)
+
+    @app.post("/api/mariadb/users/password")
+    @require_auth
+    def api_mariadb_password():
+        def work(body: dict) -> None:
+            mariadb.set_password(body.get("name"), body.get("host"), body.get("password"))
+
+        return _mariadb_action(work)
+
+    @app.post("/api/mariadb/users/drop")
+    @require_auth
+    def api_mariadb_drop_user():
+        return _mariadb_action(lambda body: mariadb.drop_user(body.get("name"), body.get("host")))
+
     @app.post("/api/settings")
     @require_auth
     def api_settings():
@@ -388,6 +458,24 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
         return jsonify({"ok": True, "version": __version__})
 
     # -- internals --------------------------------------------------------
+
+    def _mariadb_action(work: Callable[[dict], None]):
+        """Run one database change in the request, so a password stays out of the job log."""
+        item = component_view("mariadb")
+        if not item["installed"]:
+            return jsonify({"error": "MariaDB is not installed"}), 409
+        if not item["active"]:
+            return jsonify({"error": "MariaDB is not running"}), 409
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "expected a JSON object"}), 400
+        try:
+            work(payload)
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except (ValueError, mariadb.MariaDbError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"ok": True})
 
     def start_job(component_id: str, action: str, work: JobWork):
         """Queue one job in the single worker slot, or say why it cannot run."""

@@ -1,0 +1,133 @@
+{# Databases and local accounts. Re-fetched whole after a change, like the PHP
+   partial, so this markup has no second copy in JavaScript. #}
+{% set ready = mariadb.active and not mariadb.error %}
+
+<section class="panel">
+  <header class="panel-head">
+    <h2>Databases</h2>
+    <span class="muted">{{ mariadb.databases | length }}</span>
+  </header>
+
+  {% if not mariadb.active %}
+    <p class="hint">Start MariaDB to create databases and users.</p>
+  {% elif mariadb.error %}
+    <p class="hint">{{ mariadb.error }}</p>
+  {% endif %}
+
+  {% if mariadb.databases %}
+    <table class="mini account-table">
+      <thead>
+        <tr><th>Name</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for name in mariadb.databases %}
+          <tr>
+            <td class="mono">{{ name }}</td>
+            <td class="row-end">
+              <button class="btn danger" type="button" data-mariadb-drop="database"
+                      data-name="{{ name }}" {% if not ready %}disabled{% endif %}>Drop</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% elif ready %}
+    <p class="hint">No databases yet.</p>
+  {% endif %}
+
+  <form class="form" id="mariadb-database-form">
+    <label>
+      New database
+      <input type="text" name="name" autocomplete="off" spellcheck="false" placeholder="app"
+             {% if not ready %}disabled{% endif %} required>
+    </label>
+    <button class="btn primary" type="submit" {% if not ready %}disabled{% endif %}>Create database</button>
+  </form>
+</section>
+
+<section class="panel">
+  <header class="panel-head">
+    <h2>Users</h2>
+    <span class="muted">{{ mariadb.users | length }}</span>
+  </header>
+
+  <p class="hint">Accounts connect from this machine only (<span class="mono">localhost</span> or
+    <span class="mono">127.0.0.1</span>). Other hosts stay on the mysql client.</p>
+
+  {% if mariadb.users %}
+    <table class="mini account-table">
+      <thead>
+        <tr><th>Account</th><th>Databases</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for user in mariadb.users %}
+          <tr>
+            <td class="mono">{{ user.name }}@{{ user.host }}</td>
+            <td class="mono">{{ user.databases | join(', ') or '—' }}</td>
+            <td class="row-end">
+              <button class="btn danger" type="button" data-mariadb-drop="user"
+                      data-name="{{ user.name }}" data-host="{{ user.host }}"
+                      {% if not ready %}disabled{% endif %}>Drop</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% elif ready %}
+    <p class="hint">No users yet.</p>
+  {% endif %}
+
+  <form class="form" id="mariadb-user-form">
+    <div class="opt-grid">
+      <label>
+        User
+        <input type="text" name="name" autocomplete="off" spellcheck="false" placeholder="app"
+               {% if not ready %}disabled{% endif %} required>
+      </label>
+      <label>
+        Host
+        <select name="host" {% if not ready %}disabled{% endif %}>
+          <option value="localhost" selected>localhost</option>
+          <option value="127.0.0.1">127.0.0.1</option>
+        </select>
+      </label>
+      <label>
+        Password
+        <input type="password" name="password" autocomplete="new-password"
+               {% if not ready %}disabled{% endif %} required>
+      </label>
+      <label>
+        Database
+        <select name="database" {% if not ready %}disabled{% endif %}>
+          <option value="">No privileges yet</option>
+          {% for name in mariadb.databases %}
+            <option value="{{ name }}">{{ name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <p class="hint">Picking a database grants every privilege on that database.</p>
+    <button class="btn primary" type="submit" {% if not ready %}disabled{% endif %}>Create user</button>
+  </form>
+
+  {% if mariadb.users %}
+    <form class="form" id="mariadb-password-form">
+      <div class="opt-grid">
+        <label>
+          Account
+          <select name="account" {% if not ready %}disabled{% endif %}>
+            {% for user in mariadb.users %}
+              <option value="{{ user.name }}@{{ user.host }}">{{ user.name }}@{{ user.host }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          New password
+          <input type="password" name="password" autocomplete="new-password"
+                 {% if not ready %}disabled{% endif %} required>
+        </label>
+      </div>
+      <button class="btn primary" type="submit" {% if not ready %}disabled{% endif %}>Set password</button>
+    </form>
+  {% endif %}
+</section>

@@ -341,6 +341,9 @@ input:focus, select:focus { border-bottom-color: var(--accent); outline: none; }
 
 .opt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
 
+table.account-table { margin: 0 0 18px; }
+table.account-table td.row-end { text-align: right; width: 1%; white-space: nowrap; }
+
 /* ---------- logs and tables ---------- */
 .log {
   margin: 0;
