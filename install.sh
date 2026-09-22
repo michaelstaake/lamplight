@@ -74,4 +74,5 @@ Lamplight is running. Open this on this machine:
 
 Apache, MariaDB, PHP, phpMyAdmin, and Mailpit are NOT installed yet.
 Install them one at a time from the panel.
+If you already had Lamplight installed, any previously configured services will already be there.
 EOF
