@@ -73,8 +73,9 @@ def test_nav_has_a_link_per_component_in_catalog_order(client):
     body = client.get("/").get_data(as_text=True)
     positions = [body.index(f'data-nav="{cid}"') for cid in COMPONENT_IDS]
     assert positions == sorted(positions), "nav order must follow the catalog"
-    for label in ("Dashboard", "Settings"):
+    for label in ("Dashboard", "Settings", "GitHub"):
         assert f">{label}</span>" in body
+    assert 'href="https://github.com/michaelstaake/lamplight"' in body
     assert ">Logs</span>" not in body
 
 

@@ -30,6 +30,13 @@
           <span class="nav-label">Settings</span>
         </a>
 
+        <a href="https://github.com/michaelstaake/lamplight"
+           class="nav-item"
+           target="_blank"
+           rel="noopener noreferrer">
+          <span class="nav-label">GitHub</span>
+        </a>
+
         <p class="nav-heading">Stack</p>
         {% for item in nav_components %}
           <a href="{{ url_for('component_page', component_id=item.id) }}"
