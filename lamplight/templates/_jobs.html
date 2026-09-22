@@ -1,0 +1,38 @@
+{# Lamplight's own job history. Lives on the Dashboard; a job id in the query
+   string opens that job's output above the table. #}
+{% if job %}
+  <section class="panel">
+    <header class="panel-head">
+      <h2>Job {{ job.id }} · {{ job.component_id }} {{ job.action }}</h2>
+      <span class="state state-{{ job.status }}">{{ job.status }}</span>
+    </header>
+    <pre class="log">{{ job.log or 'This job wrote nothing.' }}</pre>
+    {% if job.error %}<p class="hint">{{ job.error }}</p>{% endif %}
+  </section>
+{% endif %}
+
+<section class="panel flush">
+  <header class="panel-head">
+    <h2>Jobs</h2>
+    <span class="muted">The most recent {{ history }} jobs are kept; older ones are dropped.</span>
+  </header>
+  <table>
+    <thead>
+      <tr><th>ID</th><th>Component</th><th>Action</th><th>Status</th><th>Started</th><th>Finished</th></tr>
+    </thead>
+    <tbody>
+      {% for row in jobs %}
+        <tr class="{{ 'current' if job and row.id == job.id else '' }}">
+          <td class="mono"><a href="{{ url_for('home', job=row.id) }}">{{ row.id }}</a></td>
+          <td><a href="{{ url_for('component_page', component_id=row.component_id) }}">{{ row.component_id }}</a></td>
+          <td>{{ row.action }}</td>
+          <td><span class="state state-{{ row.status }}">{{ row.status }}</span></td>
+          <td class="muted mono">{{ row.started_at or '—' }}</td>
+          <td class="muted mono">{{ row.finished_at or '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">No jobs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>

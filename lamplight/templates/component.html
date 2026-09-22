@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }} · Lamplight{% endblock %}
+{% block body %}
+<header class="page-head">
+  <div>
+    <h1>{{ item.name }}</h1>
+  </div>
+</header>
+
+<div id="component-panel" data-id="{{ item.id }}">
+  {% include "_component.html" %}
+</div>
+
+{% if php %}
+  <div id="php-panel">
+    {% include "_php.html" %}
+  </div>
+{% endif %}
+{% endblock %}

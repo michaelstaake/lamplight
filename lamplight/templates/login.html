@@ -1,0 +1,26 @@
+{% import "_flame.html" as mark %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Unlock · Lamplight</title>
+  <link rel="icon" href="{{ url_for('static', filename='flame.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="login-body">
+  <form class="login-card" method="post" action="{{ url_for('login_submit') }}">
+    <div class="brand">
+      {{ mark.flame(28) }}
+    </div>
+    <p class="lede">Paste the token the service printed at startup, or fetch it with <code class="mono">sudo /opt/lamplight/.venv/bin/lamplight-token</code>.</p>
+    {% if failed %}<p class="banner bad">That token does not match.</p>{% endif %}
+    <label>
+      Token
+      <input type="password" name="token" autocomplete="off" autofocus required>
+    </label>
+    <button type="submit" class="btn primary">Unlock</button>
+  </form>
+</body>
+</html>

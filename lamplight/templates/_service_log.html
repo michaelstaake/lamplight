@@ -1,0 +1,39 @@
+{# One component's own logs — Apache's error log, not Lamplight's job log.
+   Shown on the component page once it is installed. #}
+<section class="panel">
+  <header class="panel-head">
+    <h2>Logs</h2>
+  </header>
+
+  {% if sources %}
+    {% if sources|length > 1 %}
+      <div class="subtabs" role="tablist">
+        {% for s in sources %}
+          <a class="subtab{{ ' active' if source and s.id == source.id }}"
+             href="{{ url_for('component_page', component_id=item.id, source=s.id) }}">{{ s.label }}</a>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="log-bar">
+      <span class="log-tools">
+        <button type="button" class="icon-btn is-on" id="log-play" title="Play" aria-label="Play" aria-pressed="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="M3.5 2.2v11.6L14 8z"/>
+          </svg>
+        </button>
+        <button type="button" class="icon-btn" id="log-pause" title="Pause" aria-label="Pause" aria-pressed="false">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="M3 2h3.2v12H3zm6.8 0H13v12H9.8z"/>
+          </svg>
+        </button>
+      </span>
+    </div>
+
+    <pre class="log tall" id="service-log"
+         data-component="{{ item.id }}" data-source="{{ source.id }}"
+    >{% if log.error %}Could not read this log: {{ log.error }}{% else %}{{ log.text }}{% endif %}</pre>
+  {% else %}
+    <p class="hint">Nothing on this host writes a log for {{ item.name }} yet.</p>
+  {% endif %}
+</section>

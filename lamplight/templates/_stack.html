@@ -1,0 +1,10 @@
+{# Compact per-component rows for the Dashboard. Fetched again after each job,
+   so this markup exists once and never gets re-implemented in JavaScript. #}
+{% for item in data.components %}
+  <a class="stack-row" href="{{ url_for('component_page', component_id=item.id) }}">
+    <span class="dot dot-{{ item.status }}" aria-hidden="true"></span>
+    <span class="stack-name">{{ item.name }}</span>
+    <span class="stack-version mono">{{ item.version or '—' }}</span>
+    <span class="state state-{{ item.status }}">{{ item.status_text }}</span>
+  </a>
+{% endfor %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Lamplight{% endblock %}
+{% block body %}
+<header class="page-head">
+  <div>
+    <h1>Dashboard</h1>
+  </div>
+</header>
+
+{% if not data.host.supported %}
+  <p class="banner bad">This does not look like a Debian-family system. Package detection and apt installs will fail.</p>
+{% endif %}
+{% if not data.host.privileged %}
+  <p class="banner warn">Not running as root. Status is read-only — installs need the systemd service. See the README.</p>
+{% endif %}
+
+<section class="stats">
+  <div class="stat">
+    <span class="stat-value">{{ data.counts.installed }}<span class="stat-of">/{{ data.counts.total }}</span></span>
+    <span class="stat-label">Installed</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ data.memory.text }}</span>
+    <span class="stat-label">Memory Usage</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value small">{{ data.host.pretty_name }}</span>
+    <span class="stat-label">Python {{ data.host.python }}</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value small mono">{{ data.document_root }}</span>
+    <span class="stat-label">Document root</span>
+  </div>
+</section>
+
+<section class="panel">
+  <header class="panel-head">
+    <h2>Stack</h2>
+  </header>
+  <div class="stack-list" id="stack-grid">
+    {% include "_stack.html" %}
+  </div>
+</section>
+
+{% include "_jobs.html" %}
+{% endblock %}

@@ -1,0 +1,69 @@
+{# Everything about one component that a job can change: status, controls, and
+   its own logs once installed. The page and the post-job refresh both render
+   exactly this. #}
+<section class="panel">
+  <header class="panel-head">
+    <h2>Status</h2>
+    <span class="state state-{{ item.status }}">{{ item.status_text }}</span>
+  </header>
+
+  <dl class="facts">
+    <div><dt>Version</dt><dd>{{ item.version or '—' }}</dd></div>
+    <div><dt>Service</dt><dd class="mono">{{ item.service or '—' }}</dd></div>
+    <div><dt>Ports</dt><dd class="mono">{{ item.ports|join(', ') if item.ports else '—' }}</dd></div>
+    <div><dt>Enabled at boot</dt>
+      <dd>{{ ('yes' if item.enabled else 'no') if item.service and item.installed else '—' }}</dd></div>
+  </dl>
+
+  {% if item.blocked_by %}
+    <p class="hint">Install first:
+      {% for req in item.blocked_by %}<a href="{{ url_for('component_page', component_id=req) }}">{{ req }}</a>{{ ', ' if not loop.last }}{% endfor %}
+    </p>
+  {% endif %}
+
+  <div class="actions">
+    {% if not item.installed %}
+      <button class="btn primary" data-act="install" data-id="{{ item.id }}"
+              {{ 'disabled' if item.blocked_by }}>Install {{ item.name }}</button>
+    {% else %}
+      {% if item.service %}
+        {% if item.active %}
+          <button class="btn" data-act="restart" data-id="{{ item.id }}">Restart</button>
+          <button class="btn" data-act="stop" data-id="{{ item.id }}">Stop</button>
+        {% else %}
+          <button class="btn primary" data-act="start" data-id="{{ item.id }}">Start</button>
+        {% endif %}
+        {% if item.enabled %}
+          <button class="btn" data-act="disable" data-id="{{ item.id }}">Disable at boot</button>
+        {% else %}
+          <button class="btn" data-act="enable" data-id="{{ item.id }}">Enable at boot</button>
+        {% endif %}
+      {% endif %}
+      {# Only shown when ufw is running and this component declares ports. #}
+      {% if item.firewall %}
+        {% if item.firewall.allowed %}
+          <button class="btn" data-act="firewall-close" data-id="{{ item.id }}"
+                  title="Delete the ufw rules allowing {{ item.firewall.ports_text }}">Block {{ item.firewall.ports_text }} in UFW</button>
+        {% else %}
+          <button class="btn" data-act="firewall-open" data-id="{{ item.id }}"
+                  data-name="{{ item.firewall.ports_text }}"
+                  title="Allow {{ item.firewall.ports_text }} through ufw from anywhere">Allow {{ item.firewall.ports_text }} in UFW</button>
+        {% endif %}
+      {% endif %}
+      {% for link in item.links %}
+        <a class="btn" href="{{ link.url }}" target="_blank" rel="noreferrer" title="{{ link.hint }}">{{ link.label }} ↗</a>
+      {% endfor %}
+      <button class="btn danger" data-act="remove" data-id="{{ item.id }}" data-name="{{ item.name }}">Remove</button>
+    {% endif %}
+  </div>
+
+  <div class="job-status" id="job-status" hidden>
+    <span class="spinner" aria-hidden="true"></span>
+    <span id="job-status-label">Running…</span>
+    <button type="button" class="linkish" id="job-details-link">Details</button>
+  </div>
+</section>
+
+{% if sources is defined %}
+  {% include "_service_log.html" %}
+{% endif %}

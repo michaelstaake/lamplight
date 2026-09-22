@@ -1,0 +1,16 @@
+# Check out and store text as LF. Without this, a Windows Git install
+# with core.autocrlf=true rewrites files to CRLF and the next Linux
+# commit turns the whole file back, forever.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.gz binary
+*.tar binary
+*.zip binary
+*.woff binary
+*.woff2 binary

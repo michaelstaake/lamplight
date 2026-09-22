@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Settings · Lamplight{% endblock %}
+{% block body %}
+<header class="page-head">
+  <div>
+    <h1>Settings</h1>
+  </div>
+</header>
+
+<div class="columns">
+  <section class="panel">
+    <header class="panel-head"><h2>Panel</h2></header>
+    <form class="form" id="settings-form">
+      <label>
+        Panel port
+        <input type="number" name="port" min="1024" max="65535" value="{{ settings.port }}">
+        <span class="hint">Takes effect after <code class="mono">systemctl restart lamplight</code>.</span>
+      </label>
+      <label>
+        Document root
+        <input type="text" name="document_root" value="{{ settings.document_root }}">
+        <span class="hint">Shown on the Dashboard. Lamplight does not reconfigure Apache for you.</span>
+      </label>
+      <button class="btn primary" type="submit">Save</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <header class="panel-head"><h2>Where things live</h2></header>
+    <dl class="facts stacked">
+      <div><dt>Bind address</dt><dd class="mono">{{ settings.host }}:{{ settings.port }}</dd></div>
+      <div><dt>Token file</dt><dd class="mono">{{ token_path }}</dd></div>
+      <div><dt>Token</dt><dd class="mono">{{ token }}</dd></div>
+      <div><dt>Data directory</dt><dd class="mono">{{ data_dir }}</dd></div>
+      <div><dt>Job database</dt><dd class="mono">{{ db_path }}</dd></div>
+      <div><dt>Host</dt><dd>{{ data.host.pretty_name }}</dd></div>
+      <div><dt>Running as root</dt><dd>{{ 'yes' if data.host.privileged else 'no' }}</dd></div>
+    </dl>
+    <p class="hint">The bind address is deliberately not editable here — edit
+      <code class="mono">/etc/lamplight/lamplight.env</code> and restart. Anyone who can read the
+      token file on this machine can install packages through the panel.</p>
+  </section>
+</div>
+{% endblock %}

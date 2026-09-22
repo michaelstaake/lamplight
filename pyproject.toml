@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lamplight"
+version = "1.0"
+description = "A localhost web UI to install and manage a LAMP stack on Debian and Ubuntu, one component at a time."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Lamplight contributors" }]
+keywords = ["lamp", "apache", "mariadb", "php", "phpmyadmin", "mailpit", "ubuntu", "debian", "localhost"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Web Environment",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+  "Topic :: System :: Installation/Setup",
+]
+dependencies = ["flask>=3.0"]
+
+[project.urls]
+Homepage = "https://github.com/michaelstaake/lamplight"
+
+[project.scripts]
+lamplight = "lamplight.cli:main"
+lamplight-token = "lamplight.cli:print_token"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+include = ["lamplight*"]
+
+[tool.setuptools.package-data]
+lamplight = ["templates/*.html", "static/*.svg", "static/css/*.css", "static/js/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]

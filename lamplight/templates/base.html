@@ -1,0 +1,64 @@
+{% import "_flame.html" as mark %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>{% block title %}Lamplight{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', filename='flame.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <a class="brand" href="{{ url_for('home') }}">
+        {{ mark.flame(24) }}
+        <strong>Lamplight</strong>
+        <span class="brand-version">v{{ app_version }}</span>
+      </a>
+
+      <nav aria-label="Sections">
+        <a href="{{ url_for('home') }}"
+           class="nav-item{{ ' active' if request.endpoint == 'home' }}"
+           {{ 'aria-current=page' if request.endpoint == 'home' }}>
+          <span class="nav-label">Dashboard</span>
+        </a>
+
+        <a href="{{ url_for('settings_page') }}"
+           class="nav-item{{ ' active' if request.endpoint == 'settings_page' }}">
+          <span class="nav-label">Settings</span>
+        </a>
+
+        <p class="nav-heading">Stack</p>
+        {% for item in nav_components %}
+          <a href="{{ url_for('component_page', component_id=item.id) }}"
+             class="nav-item{{ ' active' if request.endpoint == 'component_page' and request.view_args.get('component_id') == item.id }}"
+             data-nav="{{ item.id }}"
+             title="{{ item.name }} — {{ item.status_text }}">
+            <span class="dot dot-{{ item.status }}" aria-hidden="true"></span>
+            <span class="nav-label">{{ item.name }}</span>
+          </a>
+        {% endfor %}
+      </nav>
+    </aside>
+
+    <main class="main">
+      {% block body %}{% endblock %}
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="job-terminal" class="terminal-overlay" hidden>
+    <div class="terminal" role="dialog" aria-label="Job output">
+      <header class="terminal-head">
+        <span id="terminal-title">Job</span>
+        <button type="button" class="linkish" id="terminal-close">Close</button>
+      </header>
+      <pre class="log" id="job-log" aria-live="polite"></pre>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

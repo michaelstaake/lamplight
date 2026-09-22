@@ -1,0 +1,88 @@
+{# The PHP page's own controls: the extensions Lamplight keeps installed, and the
+   php.ini directives it writes. Re-fetched whole after a job, like every other
+   partial, so this markup has no second copy in JavaScript. #}
+<section class="panel">
+  <header class="panel-head">
+    <h2>Extensions</h2>
+    <span class="muted">{{ php.extensions | length }}</span>
+  </header>
+
+  <form class="form" id="php-extensions-form">
+    <div class="ext-tags">
+      {% for ext in php.extensions %}
+        <span class="ext-tag">
+          <input type="hidden" name="ext" value="{{ ext.name }}">
+          <span class="mono">{{ ext.package }}</span>
+          <button class="ext-drop" type="button" aria-label="Remove {{ ext.package }}">&times;</button>
+        </span>
+      {% else %}
+        <p class="hint">None selected.</p>
+      {% endfor %}
+    </div>
+
+    <label class="ext-add">
+      Add extension
+      <input type="text" name="add" autocomplete="off" spellcheck="false" placeholder="php-imap">
+    </label>
+
+    <button class="btn primary" type="submit">Apply extensions</button>
+  </form>
+</section>
+
+<section class="panel">
+  <header class="panel-head">
+    <h2>Options</h2>
+    <span class="muted">{{ php.managed_count }} overridden</span>
+  </header>
+  <form class="form" id="php-options-form">
+    <div class="opt-grid">
+      {% for opt in php.options %}
+        <label>
+          {{ opt.label }}
+          {% if opt.choices %}
+            <select name="{{ opt.name }}">
+              <option value="">PHP default — {{ opt.php_default }}</option>
+              {% for choice in opt.choices %}
+                <option value="{{ choice }}" {{ 'selected' if opt.value == choice }}>{{ choice }}</option>
+              {% endfor %}
+            </select>
+          {% else %}
+            <input type="text" name="{{ opt.name }}" value="{{ opt.value or '' }}"
+                   autocomplete="off" spellcheck="false" placeholder="{{ opt.current }}">
+          {% endif %}
+        </label>
+      {% endfor %}
+    </div>
+    <button class="btn primary" type="submit">Apply options</button>
+  </form>
+
+  {% if php.sapis %}
+    <dl class="facts stacked">
+      {% for sapi in php.sapis %}
+        <div>
+          <dt>PHP {{ sapi.version }} · {{ sapi.name }}</dt>
+          <dd class="mono">{{ sapi.drop_in }}
+            <span class="state state-{{ 'installed' if sapi.managed }}">{{ 'written' if sapi.managed else 'not written yet' }}</span>
+          </dd>
+        </div>
+      {% endfor %}
+    </dl>
+  {% else %}
+    <p class="hint">No SAPI directories under <code class="mono">/etc/php</code> yet. Options are
+      saved now and written when PHP is installed.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <header class="panel-head">
+    <h2>Loaded modules</h2>
+    <span class="muted mono">php -m</span>
+  </header>
+  {% if php.modules %}
+    <ul class="pkg-list">
+      {% for module in php.modules %}<li class="mono">{{ module }}</li>{% endfor %}
+    </ul>
+  {% else %}
+    <p class="hint">Nothing to report — <code class="mono">php</code> is not on PATH.</p>
+  {% endif %}
+</section>

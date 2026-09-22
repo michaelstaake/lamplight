@@ -1,0 +1,24 @@
+# Installed to /etc/systemd/system/lamplight.service by install.sh, which
+# substitutes @PREFIX@, @HOST@ and @PORT@. Edit /etc/lamplight/lamplight.env
+# and `systemctl restart lamplight` rather than editing the installed copy.
+[Unit]
+Description=Lamplight local LAMP workshop
+Documentation=https://github.com/michaelstaake/lamplight
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/lamplight/lamplight.env
+WorkingDirectory=@PREFIX@
+ExecStart=@PREFIX@/.venv/bin/lamplight --host @HOST@ --port @PORT@
+Restart=on-failure
+RestartSec=3
+
+# Runs as root by design: it calls apt-get and systemctl on your behalf. The
+# only thing standing between that and the network is the loopback bind.
+User=root
+ProtectHome=read-only
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

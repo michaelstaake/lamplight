@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtualenvs
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+
+# Lamplight runtime state. These normally live in /etc/lamplight and
+# /var/lib/lamplight, never in a checkout. auth.json holds a
+# root-equivalent token; settings.json and php.json are this machine's
+# panel config. Matched anywhere so a checkout used as LAMPLIGHT_CONFIG
+# or LAMPLIGHT_DATA cannot be committed.
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+auth.json
+settings.json
+php.json
+lamplight.env
+downloads/
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*~
