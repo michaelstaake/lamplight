@@ -344,6 +344,22 @@ input:focus, select:focus { border-bottom-color: var(--accent); outline: none; }
 
 table.account-table { margin: 0; }
 table.account-table td.row-end { text-align: right; width: 1%; white-space: nowrap; }
+button.row-link {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 0.86em;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+button.row-link:hover:not(:disabled) { color: var(--accent); }
+button.row-link:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+.access-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.access-list:not(:has(li:not([hidden]))) { display: none; }
 
 dialog.modal {
   border: 0;

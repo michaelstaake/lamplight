@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lamplight"
-version = "1.3"
+version = "1.4"
 description = "A localhost web UI to install and manage a LAMP stack on Debian and Ubuntu, one component at a time."
 readme = "README.md"
 license = "GPL-3.0-or-later"

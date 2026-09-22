@@ -19,15 +19,14 @@
     {% if mariadb.databases %}
       <table class="mini account-table">
         <thead>
-          <tr><th>Name</th><th></th></tr>
+          <tr><th>Name</th></tr>
         </thead>
         <tbody>
           {% for name in mariadb.databases %}
             <tr>
-              <td class="mono">{{ name }}</td>
-              <td class="row-end">
-                <button class="btn danger" type="button" data-mariadb-drop="database"
-                        data-name="{{ name }}" {% if not ready %}disabled{% endif %}>Drop</button>
+              <td>
+                <button class="row-link" type="button" data-mariadb-manage="database"
+                        data-name="{{ name }}" {% if not ready %}disabled{% endif %}>{{ name }}</button>
               </td>
             </tr>
           {% endfor %}
@@ -51,19 +50,18 @@
     {% if mariadb.users %}
       <table class="mini account-table">
         <thead>
-          <tr><th>Account</th><th>Databases</th><th></th></tr>
+          <tr><th>Account</th><th>Databases</th></tr>
         </thead>
         <tbody>
           {% for user in mariadb.users %}
             <tr>
-              <td class="mono">{{ user.name }}@{{ user.host }}</td>
-              <td class="mono">{{ user.databases | join(', ') or '—' }}</td>
-              <td class="row-end">
-                <button class="btn" type="button" data-mariadb-manage
+              <td>
+                <button class="row-link" type="button" data-mariadb-manage="user"
                         data-name="{{ user.name }}" data-host="{{ user.host }}"
                         data-databases="{{ user.databases | join(',') }}"
-                        {% if not ready %}disabled{% endif %}>Manage</button>
+                        {% if not ready %}disabled{% endif %}>{{ user.name }}@{{ user.host }}</button>
               </td>
+              <td class="mono">{{ user.databases | join(', ') or '—' }}</td>
             </tr>
           {% endfor %}
         </tbody>
@@ -112,8 +110,41 @@
       <input type="password" name="password" autocomplete="new-password"
              {% if not ready %}disabled{% endif %} required>
     </label>
-    <p class="hint">Access to databases is set afterward, from Manage.</p>
+    <p class="hint">Click the user afterward to choose which databases it can use.</p>
     <button class="btn primary" type="submit" {% if not ready %}disabled{% endif %}>Create user</button>
+  </form>
+</dialog>
+
+<dialog class="modal" id="mariadb-database-manage-modal" aria-labelledby="mariadb-database-manage-title">
+  <div class="modal-body">
+    <header class="modal-head">
+      <h2 id="mariadb-database-manage-title">Manage <span class="mono" data-label></span></h2>
+      <button type="button" class="linkish" data-mariadb-close>Close</button>
+    </header>
+    <input type="hidden" data-field="name">
+    <p class="hint">Users with access</p>
+    <ul class="access-list">
+      {% for user in mariadb.users %}
+        <li class="mono" data-databases="{{ user.databases | join(',') }}" hidden>{{ user.name }}@{{ user.host }}</li>
+      {% endfor %}
+    </ul>
+    <p class="hint" data-access-empty hidden>No users have access.</p>
+    <div class="actions">
+      <button class="btn danger" type="button" data-mariadb-open="drop"
+              {% if not ready %}disabled{% endif %}>Drop</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="modal" id="mariadb-drop-modal" aria-labelledby="mariadb-drop-title">
+  <form class="form modal-body" id="mariadb-drop-form" method="dialog">
+    <header class="modal-head">
+      <h2 id="mariadb-drop-title">Drop database</h2>
+      <button type="button" class="linkish" data-mariadb-close>Close</button>
+    </header>
+    <p class="hint">Drop <span class="mono" data-label></span>? This deletes its tables.</p>
+    <input type="hidden" name="name" data-field="name">
+    <button class="btn danger" type="submit" {% if not ready %}disabled{% endif %}>Drop</button>
   </form>
 </dialog>
 

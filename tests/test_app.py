@@ -650,10 +650,14 @@ def test_mariadb_page_lists_databases_and_users(client, host, monkeypatch):
     assert 'id="mariadb-password-form"' in body
     assert 'id="mariadb-delete-form"' in body
     assert 'id="mariadb-grants-form"' in body
+    assert 'id="mariadb-drop-form"' in body
+    assert 'id="mariadb-database-manage-modal"' in body
     assert 'data-mariadb-open="database"' in body
     assert 'data-mariadb-open="user"' in body
-    assert "data-mariadb-manage" in body
-    assert 'data-mariadb-drop="user"' not in body
+    assert 'data-mariadb-manage="database"' in body
+    assert 'data-mariadb-manage="user"' in body
+    assert "data-mariadb-drop" not in body
+    assert ">Manage<" not in body
     assert "app@localhost" in body
     assert ">app<" in body
     assert body.index('id="mariadb-panel"') < body.index('id="service-log"')

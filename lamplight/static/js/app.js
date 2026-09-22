@@ -185,13 +185,6 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  const drop = event.target.closest("[data-mariadb-drop]");
-  if (drop) {
-    event.preventDefault();
-    await dropMariaDb(drop);
-    return;
-  }
-
   const button = event.target.closest("button[data-act]");
   if (!button) return;
   event.preventDefault();
@@ -360,6 +353,15 @@ const FORMS = {
     toast("User dropped");
     await refresh();
   },
+  "mariadb-drop-form": async (form) => {
+    const name = new FormData(form).get("name");
+    await api("/api/mariadb/databases/drop", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    toast("Database dropped");
+    await refresh();
+  },
 };
 
 function mariaDbDialog(name) {
@@ -373,6 +375,14 @@ function applyAccount(dialog, name, host) {
 }
 
 function openManage(button) {
+  if (button.dataset.mariadbManage === "database") {
+    openDatabaseManage(button);
+    return;
+  }
+  openUserManage(button);
+}
+
+function openUserManage(button) {
   const dialog = mariaDbDialog("manage");
   if (!dialog) return;
   applyAccount(dialog, button.dataset.name || "", button.dataset.host || "");
@@ -383,11 +393,33 @@ function openManage(button) {
   if (!dialog.open) dialog.showModal();
 }
 
+function openDatabaseManage(button) {
+  const dialog = mariaDbDialog("database-manage");
+  if (!dialog) return;
+  const name = button.dataset.name || "";
+  dialog.querySelectorAll('[data-field="name"]').forEach((el) => { el.value = name; });
+  dialog.querySelectorAll("[data-label]").forEach((el) => { el.textContent = name; });
+  let shown = 0;
+  dialog.querySelectorAll("[data-databases]").forEach((item) => {
+    const granted = (item.dataset.databases || "").split(",").filter(Boolean);
+    const on = granted.includes(name);
+    item.hidden = !on;
+    if (on) shown += 1;
+  });
+  const empty = dialog.querySelector("[data-access-empty]");
+  if (empty) empty.hidden = shown > 0;
+  if (!dialog.open) dialog.showModal();
+}
+
 function openMariaDbModal(name, source) {
   const dialog = mariaDbDialog(name);
   if (!dialog) return;
   const from = source?.closest("dialog");
-  if (from && from !== dialog) {
+  if (name === "drop") {
+    const database = from?.querySelector('[data-field="name"]')?.value || "";
+    dialog.querySelectorAll('[data-field="name"]').forEach((el) => { el.value = database; });
+    dialog.querySelectorAll("[data-label]").forEach((el) => { el.textContent = database; });
+  } else if (from && from !== dialog) {
     const accountName = from.querySelector('[data-field="name"]')?.value || "";
     const host = from.querySelector('[data-field="host"]')?.value || "";
     applyAccount(dialog, accountName, host);
@@ -398,28 +430,6 @@ function openMariaDbModal(name, source) {
     if (input) input.value = "";
   }
   if (!dialog.open) dialog.showModal();
-}
-
-async function dropMariaDb(button) {
-  const kind = button.dataset.mariadbDrop;
-  const name = button.dataset.name;
-  const host = button.dataset.host;
-  const label = host ? `${name}@${host}` : name;
-  const question = kind === "database"
-    ? `Drop database ${name}? This deletes its tables.`
-    : `Drop user ${label}?`;
-  if (!confirm(question)) return;
-  button.disabled = true;
-  try {
-    const path = kind === "database" ? "/api/mariadb/databases/drop" : "/api/mariadb/users/drop";
-    const body = kind === "database" ? { name } : { name, host };
-    await api(path, { method: "POST", body: JSON.stringify(body) });
-    toast(kind === "database" ? "Database dropped" : "User dropped");
-    await refresh();
-  } catch (err) {
-    toast(err.message);
-    button.disabled = false;
-  }
 }
 
 document.addEventListener("submit", async (event) => {

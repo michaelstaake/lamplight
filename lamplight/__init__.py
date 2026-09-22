@@ -1,3 +1,3 @@
 """Lamplight — localhost LAMP workshop for Debian and Ubuntu."""
 
-__version__ = "1.3"
+__version__ = "1.4"
