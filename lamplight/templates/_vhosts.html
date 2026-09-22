@@ -1,0 +1,89 @@
+{# Enabled Apache vhosts. Re-fetched whole after a change, like the MariaDB
+   partial, so this markup has no second copy in JavaScript. #}
+<section class="panel">
+  <header class="panel-head with-action">
+    <h2>Vhosts</h2>
+    <button class="btn primary" type="button" data-apache-open="create"
+            {% if apache.error %}disabled{% endif %}>Add</button>
+  </header>
+
+  {% if apache.error %}
+    <p class="hint">{{ apache.error }}</p>
+  {% endif %}
+
+  {% if apache.vhosts %}
+    <table class="mini account-table">
+      <thead>
+        <tr><th>Name</th><th>Folder</th></tr>
+      </thead>
+      <tbody>
+        {% for vhost in apache.vhosts %}
+          <tr data-apache-manage data-id="{{ vhost.id }}" data-name="{{ vhost.name }}"
+              data-folder="{{ vhost.folder }}"
+              data-default="{{ 'true' if vhost.default else 'false' }}">
+            <td>
+              <button class="row-link" type="button">{{ vhost.name }}</button>
+            </td>
+            <td class="mono folder">{{ vhost.folder or '—' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% elif not apache.error %}
+    <p class="hint">No vhosts yet.</p>
+  {% endif %}
+</section>
+
+<dialog class="modal" id="apache-create-modal" aria-labelledby="apache-create-title">
+  <form class="form modal-body" id="apache-create-form" method="dialog">
+    <header class="modal-head">
+      <h2 id="apache-create-title">New vhost</h2>
+      <button type="button" class="linkish" data-apache-close>Close</button>
+    </header>
+    <label>
+      Name
+      <input type="text" name="name" autocomplete="off" spellcheck="false" placeholder="app.test"
+             {% if apache.error %}disabled{% endif %} required>
+    </label>
+    <label>
+      Folder
+      <input type="text" name="folder" autocomplete="off" spellcheck="false"
+             placeholder="/var/www/app.test" {% if apache.error %}disabled{% endif %} required>
+    </label>
+    <p class="hint">Apache serves that folder for the name. On this machine the name points at 127.0.0.1.</p>
+    <button class="btn primary" type="submit" {% if apache.error %}disabled{% endif %}>Create vhost</button>
+  </form>
+</dialog>
+
+<dialog class="modal" id="apache-manage-modal" aria-labelledby="apache-manage-title">
+  <div class="modal-body">
+    <header class="modal-head">
+      <h2 id="apache-manage-title">Manage <span class="mono" data-label></span></h2>
+      <button type="button" class="linkish" data-apache-close>Close</button>
+    </header>
+    <form class="form" id="apache-manage-form" method="dialog">
+      <input type="hidden" name="id" data-field="id">
+      <label>
+        Folder
+        <input type="text" name="folder" autocomplete="off" spellcheck="false" required>
+      </label>
+    </form>
+    <p class="hint" data-default-note hidden>The default site cannot be deleted.</p>
+    <div class="actions">
+      <button class="btn primary" type="submit" form="apache-manage-form">Save</button>
+      <button class="btn danger" type="button" data-apache-open="delete" hidden>Delete</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="modal" id="apache-delete-modal" aria-labelledby="apache-delete-title">
+  <form class="form modal-body" id="apache-delete-form" method="dialog">
+    <header class="modal-head">
+      <h2 id="apache-delete-title">Delete vhost</h2>
+      <button type="button" class="linkish" data-apache-close>Close</button>
+    </header>
+    <p class="hint">Delete <span class="mono" data-label></span>? Its Apache config is removed. Files in the folder stay.</p>
+    <input type="hidden" name="id" data-field="id">
+    <button class="btn danger" type="submit">Delete</button>
+  </form>
+</dialog>

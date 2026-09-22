@@ -90,8 +90,7 @@ make run
 That binds to `127.0.0.1:3847` and prints the token. Run unprivileged it can only read status —
 installs need root, so use `sudo .venv/bin/lamplight` if you have to, but prefer the unit file.
 
-Put your project files in `/var/www/html`, or add an Apache vhost yourself. Lamplight does not invent
-a second document-root layout.
+Put your project files in `/var/www/html`, or add a vhost on the Apache page.
 
 ## Reaching the site from the LAN
 
@@ -153,6 +152,17 @@ the file stay `curl`; apt installs `php8.5-curl`.
 Values are validated before anything is written — an option only accepts the shape its directive
 takes, so nothing typed into the browser can become a second line of the `.ini`.
 
+## Managing Apache
+
+The Apache page lists vhosts between status and logs. A fresh install shows the default site and
+the folder it serves, `/var/www/html`. Click a row to change that folder. **Add** creates another
+name — `app.test` served from `/var/www/app.test` — enables the site, and adds
+`127.0.0.1 app.test` to `/etc/hosts` so this machine can open it.
+
+The default site cannot be deleted. Deleting any other vhost removes its Apache config and the
+hosts line Lamplight added. The folder and the files in it stay. Apache is reloaded when it is
+running. A config Apache rejects is written back to what it was.
+
 ## Managing MariaDB
 
 The MariaDB page can create and drop databases and local accounts once the service is running.
@@ -196,6 +206,11 @@ proxy this panel to the internet.
   written, and an extension name is only ever used as `php-<name>` (or `php8.5-<name>` when a
   version is pinned) in an apt argument list — so nothing typed into the browser can become a
   second line of the `.ini`.
+- **Apache vhosts.** A name has to be a hostname (`app.test`). A folder has to be one absolute path
+  of letters, digits, dots, dashes, and underscores, so it cannot break out of the `DocumentRoot`
+  line. The default site, `000-default`, cannot be deleted. Hosts lines this page removes are only
+  ones it added, marked `# lamplight`. `apache2ctl configtest` runs before a reload, and a config
+  Apache rejects is put back.
 - **MariaDB accounts.** Creating a database or user runs the `mysql` client as root over the unix
   socket. The statement is written to the client's standard input, so a password is not on the
   command line. Names are letters, digits, and underscores; hosts are only `localhost` and

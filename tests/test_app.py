@@ -825,6 +825,121 @@ def test_mariadb_endpoints_are_behind_the_token(app):
     assert guest.get("/partials/component/mariadb/log").status_code == 302
 
 
+# -- apache vhosts --------------------------------------------------------
+
+
+def test_vhost_tools_wait_until_apache_is_installed(client):
+    body = client.get("/c/apache").get_data(as_text=True)
+    assert 'id="apache-panel"' in body
+    assert "<h2>Vhosts</h2>" not in body
+    assert client.get("/partials/apache").get_data(as_text=True) == ""
+    assert client.get("/api/apache/vhosts").status_code == 409
+    assert (
+        client.post(
+            "/api/apache/vhosts", json={"name": "app.test", "folder": "/var/www/app"}
+        ).status_code
+        == 409
+    )
+
+
+def test_apache_page_lists_the_default_vhost_between_status_and_logs(client, host):
+    started = client.post("/api/components/apache/install").get_json()
+    wait_for_job(client, started["job_id"])
+    body = client.get("/c/apache").get_data(as_text=True)
+    assert (
+        body.index("<h2>Status</h2>") < body.index("<h2>Vhosts</h2>") < body.index("<h2>Logs</h2>")
+    )
+    assert 'data-name="default"' in body
+    assert 'data-folder="/var/www/html"' in body
+    assert 'data-default="true"' in body
+    assert "data-apache-manage" in body
+    assert 'id="apache-manage-modal"' in body
+    assert 'data-apache-open="delete" hidden' in body
+    partial = client.get("/partials/apache").get_data(as_text=True)
+    assert partial.strip() in body
+    assert 'id="apache-panel"' not in client.get("/c/mariadb").get_data(as_text=True)
+    assert 'id="apache-panel"' not in client.get("/c/php").get_data(as_text=True)
+
+    listed = client.get("/api/apache/vhosts").get_json()
+    assert listed["vhosts"] == [
+        {"id": "000-default", "name": "default", "folder": "/var/www/html", "default": True}
+    ]
+
+
+def test_creating_retargeting_and_deleting_vhosts(client, host, monkeypatch):
+    from lamplight import systemops, vhosts
+
+    host.apply("apache", "install")
+    monkeypatch.setattr(systemops, "is_root", lambda: True)
+
+    created = client.post("/api/apache/vhosts", json={"name": "app.test", "folder": "/var/www/app"})
+    assert created.status_code == 200
+    text = (vhosts.SITES_AVAILABLE / "app.test.conf").read_text(encoding="utf-8")
+    assert "ServerName app.test" in text
+    assert "DocumentRoot /var/www/app" in text
+    assert (vhosts.SITES_ENABLED / "app.test.conf").is_file()
+    hosts = vhosts.HOSTS_FILE.read_text(encoding="utf-8")
+    assert "127.0.0.1 localhost" in hosts
+    assert "127.0.0.1 app.test # lamplight" in hosts
+
+    body = client.get("/c/apache").get_data(as_text=True)
+    assert "app.test" in body
+    assert "/var/www/app" in body
+    assert 'data-default="false"' in body
+
+    changed = client.post(
+        "/api/apache/vhosts/folder", json={"id": "000-default", "folder": "/srv/site"}
+    )
+    assert changed.status_code == 200
+    default = (vhosts.SITES_AVAILABLE / "000-default.conf").read_text(encoding="utf-8")
+    assert "DocumentRoot /srv/site" in default
+    assert "# default site" in default
+
+    refused = client.post("/api/apache/vhosts/delete", json={"id": "000-default"})
+    assert refused.status_code == 400
+    assert "cannot be deleted" in refused.get_json()["error"]
+    assert (vhosts.SITES_AVAILABLE / "000-default.conf").is_file()
+
+    removed = client.post("/api/apache/vhosts/delete", json={"id": "app.test"})
+    assert removed.status_code == 200
+    assert not (vhosts.SITES_AVAILABLE / "app.test.conf").exists()
+    assert "app.test" not in vhosts.HOSTS_FILE.read_text(encoding="utf-8")
+    assert "127.0.0.1 localhost" in vhosts.HOSTS_FILE.read_text(encoding="utf-8")
+
+
+def test_vhost_changes_reject_a_broken_folder_and_require_root(client, host, monkeypatch):
+    from lamplight import systemops, vhosts
+
+    host.apply("apache", "install")
+    monkeypatch.setattr(systemops, "is_root", lambda: True)
+    original = (vhosts.SITES_AVAILABLE / "000-default.conf").read_text(encoding="utf-8")
+    for payload in (
+        {"name": "app.test", "folder": "/var/www/app\nInclude /etc/passwd"},
+        {"name": "app\n.test", "folder": "/var/www/app"},
+        {"name": "default", "folder": "/var/www/app"},
+    ):
+        response = client.post("/api/apache/vhosts", json=payload)
+        assert response.status_code == 400, payload
+    assert (vhosts.SITES_AVAILABLE / "000-default.conf").read_text(encoding="utf-8") == original
+    assert not (vhosts.SITES_AVAILABLE / "app.test.conf").exists()
+
+    monkeypatch.setattr(systemops, "is_root", lambda: False)
+    response = client.post(
+        "/api/apache/vhosts", json={"name": "app.test", "folder": "/var/www/app"}
+    )
+    assert response.status_code == 403
+    assert "must run as root" in response.get_json()["error"]
+
+
+def test_vhost_endpoints_are_behind_the_token(app):
+    guest = app.test_client()
+    assert guest.get("/api/apache/vhosts").status_code == 401
+    assert guest.post("/api/apache/vhosts", json={"name": "app.test"}).status_code == 401
+    assert guest.post("/api/apache/vhosts/folder", json={"id": "000-default"}).status_code == 401
+    assert guest.post("/api/apache/vhosts/delete", json={"id": "app.test"}).status_code == 401
+    assert guest.get("/partials/apache").status_code == 302
+
+
 def test_job_ids_are_random_strings_not_a_counter(client):
     first = client.post("/api/components/apache/install").get_json()["job_id"]
     wait_for_job(client, first)

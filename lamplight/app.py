@@ -21,7 +21,19 @@ from flask import (
     url_for,
 )
 
-from . import __version__, catalog, config, db, jobs, logsources, mariadb, php, status, systemops
+from . import (
+    __version__,
+    catalog,
+    config,
+    db,
+    jobs,
+    logsources,
+    mariadb,
+    php,
+    status,
+    systemops,
+    vhosts,
+)
 from .firewall import FIREWALL_ACTIONS
 from .installer import SERVICE_ACTIONS, Installer
 from .jobs import JobRunner, JobStore
@@ -88,6 +100,17 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
         except (mariadb.MariaDbError, PermissionError) as exc:
             return view | {"error": str(exc)}
         return view | listed
+
+    def apache_view() -> dict | None:
+        """Enabled vhosts, once Apache is installed. None before that."""
+        item = component_view("apache")
+        if not item["installed"]:
+            return None
+        try:
+            listed = vhosts.list_vhosts()
+        except (vhosts.ApacheError, OSError) as exc:
+            return {"vhosts": [], "error": str(exc)}
+        return {"vhosts": listed, "error": None}
 
     def component_view(component_id: str) -> dict:
         for item in state()["components"]:
@@ -197,6 +220,7 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
             item=item,
             php=php_state() if component_id == "php" else None,
             mariadb=mariadb_view() if component_id == "mariadb" else None,
+            apache=apache_view() if component_id == "apache" else None,
             **service_log_context(item),
         )
 
@@ -267,6 +291,14 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
         if view is None:
             return ""
         return render_template("_mariadb.html", mariadb=view)
+
+    @app.get("/partials/apache")
+    @require_auth
+    def apache_partial():
+        view = apache_view()
+        if view is None:
+            return ""
+        return render_template("_vhosts.html", apache=view)
 
     # -- api --------------------------------------------------------------
 
@@ -457,6 +489,35 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
     def api_mariadb_drop_user():
         return _mariadb_action(lambda body: mariadb.drop_user(body.get("name"), body.get("host")))
 
+    @app.get("/api/apache/vhosts")
+    @require_auth
+    def api_apache_vhosts():
+        view = apache_view()
+        if view is None:
+            return jsonify({"error": "Apache is not installed"}), 409
+        return jsonify(view)
+
+    @app.post("/api/apache/vhosts")
+    @require_auth
+    def api_apache_create_vhost():
+        def work(body: dict) -> None:
+            vhosts.create_vhost(body.get("name"), body.get("folder"))
+
+        return _apache_action(work)
+
+    @app.post("/api/apache/vhosts/folder")
+    @require_auth
+    def api_apache_folder():
+        def work(body: dict) -> None:
+            vhosts.set_folder(body.get("id"), body.get("folder"))
+
+        return _apache_action(work)
+
+    @app.post("/api/apache/vhosts/delete")
+    @require_auth
+    def api_apache_delete_vhost():
+        return _apache_action(lambda body: vhosts.delete_vhost(body.get("id")))
+
     @app.post("/api/settings")
     @require_auth
     def api_settings():
@@ -491,6 +552,22 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
         except PermissionError as exc:
             return jsonify({"error": str(exc)}), 403
         except (ValueError, mariadb.MariaDbError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"ok": True})
+
+    def _apache_action(work: Callable[[dict], None]):
+        """Write a vhost and reload Apache in the request, the same way a database change runs."""
+        item = component_view("apache")
+        if not item["installed"]:
+            return jsonify({"error": "Apache is not installed"}), 409
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "expected a JSON object"}), 400
+        try:
+            work(payload)
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except (ValueError, vhosts.ApacheError) as exc:
             return jsonify({"error": str(exc)}), 400
         return jsonify({"ok": True})
 

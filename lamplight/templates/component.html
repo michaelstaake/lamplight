@@ -23,6 +23,12 @@
   </div>
 {% endif %}
 
+{% if item.id == 'apache' %}
+  <div id="apache-panel">
+    {% if apache %}{% include "_vhosts.html" %}{% endif %}
+  </div>
+{% endif %}
+
 <div id="service-log-panel" data-id="{{ item.id }}">
   {% if sources is defined %}{% include "_service_log.html" %}{% endif %}
 </div>

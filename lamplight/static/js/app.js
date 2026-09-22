@@ -78,6 +78,7 @@ async function refresh() {
   const stack = document.getElementById("stack-grid");
   const phpPanel = document.getElementById("php-panel");
   const mariadbPanel = document.getElementById("mariadb-panel");
+  const apachePanel = document.getElementById("apache-panel");
   const logPanel = document.getElementById("service-log-panel");
   const source = serviceLog()?.dataset.source;
   closeModals();
@@ -85,6 +86,7 @@ async function refresh() {
   if (stack) await swap(stack, "/partials/stack");
   if (phpPanel) await swap(phpPanel, "/partials/php");
   if (mariadbPanel) await swap(mariadbPanel, "/partials/mariadb");
+  if (apachePanel) await swap(apachePanel, "/partials/apache");
   if (logPanel) {
     const query = source ? `?source=${encodeURIComponent(source)}` : "";
     await swap(logPanel, `/partials/component/${logPanel.dataset.id}/log${query}`);
@@ -182,6 +184,27 @@ document.addEventListener("click", async (event) => {
   if (opener) {
     event.preventDefault();
     openMariaDbModal(opener.dataset.mariadbOpen, opener);
+    return;
+  }
+
+  const apacheCloser = event.target.closest("[data-apache-close]");
+  if (apacheCloser) {
+    event.preventDefault();
+    apacheCloser.closest("dialog")?.close();
+    return;
+  }
+
+  const apacheManage = event.target.closest("[data-apache-manage]");
+  if (apacheManage) {
+    event.preventDefault();
+    openApacheManage(apacheManage);
+    return;
+  }
+
+  const apacheOpener = event.target.closest("[data-apache-open]");
+  if (apacheOpener) {
+    event.preventDefault();
+    openApacheModal(apacheOpener.dataset.apacheOpen);
     return;
   }
 
@@ -362,6 +385,33 @@ const FORMS = {
     toast("Database dropped");
     await refresh();
   },
+  "apache-create-form": async (form) => {
+    const data = new FormData(form);
+    await api("/api/apache/vhosts", {
+      method: "POST",
+      body: JSON.stringify({ name: data.get("name"), folder: data.get("folder") }),
+    });
+    toast("Vhost created");
+    await refresh();
+  },
+  "apache-manage-form": async (form) => {
+    const data = new FormData(form);
+    await api("/api/apache/vhosts/folder", {
+      method: "POST",
+      body: JSON.stringify({ id: data.get("id"), folder: data.get("folder") }),
+    });
+    toast("Folder updated");
+    await refresh();
+  },
+  "apache-delete-form": async (form) => {
+    const id = new FormData(form).get("id");
+    await api("/api/apache/vhosts/delete", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    });
+    toast("Vhost deleted");
+    await refresh();
+  },
 };
 
 function mariaDbDialog(name) {
@@ -408,6 +458,38 @@ function openDatabaseManage(button) {
   });
   const empty = dialog.querySelector("[data-access-empty]");
   if (empty) empty.hidden = shown > 0;
+  if (!dialog.open) dialog.showModal();
+}
+
+function openApacheManage(row) {
+  const dialog = document.getElementById("apache-manage-modal");
+  if (!dialog) return;
+  const id = row.dataset.id || "";
+  const name = row.dataset.name || "";
+  const folder = row.dataset.folder || "";
+  const isDefault = row.dataset.default === "true";
+  dialog.querySelectorAll('[data-field="id"]').forEach((el) => { el.value = id; });
+  dialog.querySelectorAll("[data-label]").forEach((el) => { el.textContent = name; });
+  const input = dialog.querySelector('input[name="folder"]');
+  if (input) input.value = folder;
+  const remove = dialog.querySelector("[data-apache-open='delete']");
+  if (remove) remove.hidden = isDefault;
+  const note = dialog.querySelector("[data-default-note]");
+  if (note) note.hidden = !isDefault;
+  if (!dialog.open) dialog.showModal();
+}
+
+function openApacheModal(name) {
+  const dialog = document.getElementById(`apache-${name}-modal`);
+  if (!dialog) return;
+  if (name === "create") dialog.querySelector("form")?.reset();
+  if (name === "delete") {
+    const from = document.getElementById("apache-manage-modal");
+    const id = from?.querySelector('[data-field="id"]')?.value || "";
+    const label = from?.querySelector("[data-label]")?.textContent || "";
+    dialog.querySelectorAll('[data-field="id"]').forEach((el) => { el.value = id; });
+    dialog.querySelectorAll("[data-label]").forEach((el) => { el.textContent = label; });
+  }
   if (!dialog.open) dialog.showModal();
 }
 

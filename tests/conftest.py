@@ -10,7 +10,7 @@ import subprocess
 
 import pytest
 
-from lamplight import config, logsources, php, status, systemops
+from lamplight import config, logsources, php, status, systemops, vhosts
 from lamplight.app import create_app
 from lamplight.catalog import COMPONENTS, get_component
 from lamplight.firewall import FIREWALL_CLOSE, FIREWALL_OPEN
@@ -182,6 +182,36 @@ def host(monkeypatch, tmp_path):
         return real_run(argv, **kwargs)
 
     monkeypatch.setattr(systemops, "run", fake_run)
+
+    # Apache vhosts are files. Point them at this temp tree so a test never
+    # reads or writes the machine's /etc/apache2 or /etc/hosts.
+    sites_available = tmp_path / "sites-available"
+    sites_enabled = tmp_path / "sites-enabled"
+    sites_available.mkdir()
+    sites_enabled.mkdir()
+    default_conf = (
+        "<VirtualHost *:80>\n"
+        "\t# default site\n"
+        "\tDocumentRoot /var/www/html\n"
+        "\tErrorLog ${APACHE_LOG_DIR}/error.log\n"
+        "\tCustomLog ${APACHE_LOG_DIR}/access.log combined\n"
+        "</VirtualHost>\n"
+    )
+    (sites_available / "000-default.conf").write_text(default_conf, encoding="utf-8")
+    (sites_enabled / "000-default.conf").write_text(default_conf, encoding="utf-8")
+    (tmp_path / "hosts").write_text("127.0.0.1 localhost\n", encoding="utf-8")
+    monkeypatch.setattr(vhosts, "SITES_AVAILABLE", sites_available)
+    monkeypatch.setattr(vhosts, "SITES_ENABLED", sites_enabled)
+    monkeypatch.setattr(vhosts, "HOSTS_FILE", tmp_path / "hosts")
+    monkeypatch.setattr(vhosts, "ensure_folder", lambda folder: None)
+    monkeypatch.setattr(
+        vhosts,
+        "enable_site",
+        lambda site_id: (sites_enabled / f"{site_id}.conf").write_text(
+            "enabled\n", encoding="utf-8"
+        ),
+    )
+    monkeypatch.setattr(vhosts, "reload_apache", lambda: None)
     return fake
 
 
