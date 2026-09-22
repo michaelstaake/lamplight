@@ -28,6 +28,7 @@ Lamplight downloads a **pinned release binary and verifies its SHA256** before i
 ## Requirements
 
 - Ubuntu 24.04 / 26.04, Debian 12 / 13, or another Debian-family distro with `apt` and `systemd`
+- Git, to clone the repository. A fresh Ubuntu install does not include it: `sudo apt install git`
 - Python 3.11+
 - Root for the systemd service — it runs `apt-get` and `systemctl` for you
 
