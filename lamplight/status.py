@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import catalog, php, systemops
+from . import php, systemops
 from .catalog import COMPONENTS, Component
 
 AVAILABLE = "available"
@@ -47,11 +47,20 @@ class HostProbe:
     own_memory: int | None = None
 
 
-def _probe() -> HostProbe:
-    """One dpkg call and one systemctl call for the whole catalog."""
-    packages = systemops.package_states(
-        pkg for component in COMPONENTS if component.kind == "apt" for pkg in component.packages
-    )
+def _probe(php_config: php.PhpConfig | None = None) -> HostProbe:
+    """One dpkg call and one systemctl call for the whole catalog.
+
+    A pinned PHP version is installed as `php8.5` rather than the `php`
+    metapackage, so the probe has to ask about those names or the panel
+    reports PHP as missing and blocks phpMyAdmin.
+    """
+    php_runtime = php_config.runtime_packages if php_config is not None else php.DISTRO_RUNTIME
+    wanted = {
+        component.id: php_runtime if component.id == "php" else component.packages
+        for component in COMPONENTS
+        if component.kind == "apt"
+    }
+    packages = systemops.package_states(pkg for names in wanted.values() for pkg in names)
     # Lamplight's own unit rides along in the same call the catalog needs.
     services = systemops.service_states(
         [LAMPLIGHT_UNIT, *(component.service for component in COMPONENTS if component.service)]
@@ -66,10 +75,9 @@ def _probe() -> HostProbe:
     state: dict[str, dict] = {}
     for component in COMPONENTS:
         if component.kind == "apt":
-            installed = all(packages[pkg].installed for pkg in component.packages)
-            version = next(
-                (packages[pkg].version for pkg in component.packages if packages[pkg].version), None
-            )
+            names = wanted[component.id]
+            installed = all(packages[pkg].installed for pkg in names)
+            version = next((packages[pkg].version for pkg in names if packages[pkg].version), None)
             if installed and component.id == "php":
                 version = systemops.command_version(["php", "-v"]) or version
         else:
@@ -195,7 +203,7 @@ def php_view(php_config: php.PhpConfig) -> dict:
     else. Dropping a tag is how you uninstall one.
     """
     extensions = [
-        {"name": name, "package": php.PACKAGE_PREFIX + name}
+        {"name": name, "package": php.extension_package(name, php_config.version)}
         for name in sorted(php_config.extensions)
     ]
 
@@ -218,6 +226,8 @@ def php_view(php_config: php.PhpConfig) -> dict:
         )
 
     return {
+        "version": php_config.version,
+        "versions": list(php.SELECTABLE_VERSIONS),
         "extensions": extensions,
         "options": options,
         "managed_count": len(php_config.options),
@@ -235,13 +245,13 @@ def php_view(php_config: php.PhpConfig) -> dict:
 
 
 def dashboard(settings, php_config: php.PhpConfig | None = None) -> dict:
-    probe = _probe()
+    probe = _probe(php_config)
     state = probe.components
     installed_ids = {cid for cid, item in state.items() if item["installed"]}
     items = [_snapshot(component, state[component.id], installed_ids) for component in COMPONENTS]
     if php_config is not None:
         # What PHP installs is a selection, not a fixed list — see php.py.
-        base = catalog.get_component("php").packages
+        base = php_config.runtime_packages
         for item in items:
             if item["id"] == "php":
                 item["packages"] = list(base) + list(php_config.packages)

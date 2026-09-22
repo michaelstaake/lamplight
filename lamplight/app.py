@@ -317,16 +317,43 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
         desired, problems = php.clean_extensions(payload["extensions"])
         if problems:
             return jsonify({"error": "; ".join(problems)}), 400
-        # Catch a typo here rather than three minutes into an apt job.
-        known = systemops.apt_packages_exist(php.PACKAGE_PREFIX + name for name in desired)
-        unknown = [name for name, exists in known.items() if exists is False]
-        if unknown:
-            return jsonify({"error": "apt has no package " + ", ".join(unknown)}), 400
+        # Catch a typo here rather than three minutes into an apt job. A pinned
+        # version apt has never heard of is not a typo — the job adds Surý's
+        # repository first, then installs. Once that runtime is known, a missing
+        # extension package is still refused.
+        php_config = php.load_config(paths)
+        runtime = php.runtime_packages(php_config.version)[0]
+        runtime_known = (
+            not php_config.version or systemops.apt_packages_exist([runtime]).get(runtime) is True
+        )
+        if runtime_known:
+            known = systemops.apt_packages_exist(
+                php.extension_package(name, php_config.version) for name in desired
+            )
+            unknown = [name for name, exists in known.items() if exists is False]
+            if unknown:
+                return jsonify({"error": "apt has no package " + ", ".join(unknown)}), 400
 
         def work(job_id: str, installer: Installer) -> None:
             installer.set_php_extensions(job_id, desired)
 
         return start_job("php", "extensions", work)
+
+    @app.post("/api/php/version")
+    @require_auth
+    def api_php_version():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or "version" not in payload:
+            return jsonify({"error": 'expected {"version": "8.5"}'}), 400
+        try:
+            version = php.clean_version(payload["version"])
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        def work(job_id: str, installer: Installer) -> None:
+            installer.set_php_version(job_id, version)
+
+        return start_job("php", "version", work)
 
     @app.post("/api/php/options")
     @require_auth

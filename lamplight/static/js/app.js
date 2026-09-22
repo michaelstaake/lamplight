@@ -245,6 +245,13 @@ const FORMS = {
     await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
     toast("Settings saved");
   },
+  "php-version-form": async (form) => {
+    setLog("");
+    const version = new FormData(form).get("version") ?? "";
+    const body = JSON.stringify({ version });
+    const { job_id: jobId } = await api("/api/php/version", { method: "POST", body });
+    streamJob(jobId);
+  },
   "php-extensions-form": async (form) => {
     setLog("");
     const body = JSON.stringify({ extensions: chosenExtensions(form) });

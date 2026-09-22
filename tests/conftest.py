@@ -50,7 +50,7 @@ class FakeHost:
         self.apache_logs = apache_logs
         self.mysql_logs = mysql_logs
 
-    def probe(self) -> status.HostProbe:
+    def probe(self, php_config=None) -> status.HostProbe:
         return status.HostProbe(components=self.components, own_memory=OWN_MEMORY)
 
     def apply(self, component_id: str, action: str) -> None:
@@ -102,13 +102,31 @@ class FakeInstaller:
 
     def set_php_extensions(self, job_id, desired):
         previous = php.load_config(self.paths)
-        php.save_config(self.paths, php.PhpConfig(extensions=desired, options=previous.options))
+        php.save_config(
+            self.paths,
+            php.PhpConfig(extensions=desired, options=previous.options, version=previous.version),
+        )
         self._log(job_id, "[job] extensions: " + (", ".join(desired) or "none"))
 
     def apply_php_options(self, job_id, options):
         previous = php.load_config(self.paths)
-        php.save_config(self.paths, php.PhpConfig(extensions=previous.extensions, options=options))
+        php.save_config(
+            self.paths,
+            php.PhpConfig(
+                extensions=previous.extensions, options=options, version=previous.version
+            ),
+        )
         self._log(job_id, "[job] options: " + (", ".join(options) or "none"))
+
+    def set_php_version(self, job_id, version):
+        previous = php.load_config(self.paths)
+        php.save_config(
+            self.paths,
+            php.PhpConfig(
+                extensions=previous.extensions, options=previous.options, version=version
+            ),
+        )
+        self._log(job_id, "[job] version: " + (version or "distro"))
 
     def _act(self, job_id, component_id, action):
         self._log(job_id, f"[job] {action} {component_id}")

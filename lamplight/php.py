@@ -1,8 +1,9 @@
-"""The parts of PHP the panel manages: which extensions are installed, and the
-handful of php.ini directives people actually reach for.
+"""The parts of PHP the panel manages: which version and extensions are
+installed, and the handful of php.ini directives people actually reach for.
 
-Both are stored in one JSON file next to settings.json, and both are applied by
-a job. Extensions are ordinary apt packages (`php-curl` and friends). Options
+All three are stored in one JSON file next to settings.json, and all three are
+applied by a job. An empty version means the distro's `php` metapackage.
+Pinning `8.5` switches the apt names to `php8.5` and `php8.5-curl`. Options
 are written to a single drop-in, `conf.d/99-lamplight.ini`, in every installed
 SAPI — PHP reads conf.d after php.ini, and the `99-` prefix sorts last, so the
 drop-in wins without php.ini ever being edited. Delete the file and PHP is back
@@ -22,9 +23,24 @@ from . import config
 PACKAGE_PREFIX = "php-"
 DROP_IN_NAME = "99-lamplight.ini"
 PHP_ETC = Path("/etc/php")
+APACHE_MODS_ENABLED = Path("/etc/apache2/mods-enabled")
+# Ondřej Surý's packages: the PPA on Ubuntu and its derivatives (Zorin included),
+# and packages.sury.org on Debian. Added only when a pinned version is not
+# already in apt. The version string is never interpolated into these.
+SURY_PPA = "ppa:ondrej/php"
+SURY_KEYRING_URL = "https://packages.sury.org/debsuryorg-archive-keyring.deb"
+SURY_KEYRING = "/usr/share/keyrings/deb.sury.org-php.gpg"
+SURY_LIST = Path("/etc/apt/sources.list.d/sury-php.list")
+SURY_KEYRING_DEB = Path("/tmp/debsuryorg-archive-keyring.deb")
 MAX_EXTENSIONS = 64
 MAX_VALUE_LENGTH = 64
 MAX_NAME_LENGTH = 32
+
+# What the version selector is allowed to pin. Blank means the distro package.
+SELECTABLE_VERSIONS: tuple[str, ...] = ("8.3", "8.4", "8.5")
+DISTRO_RUNTIME: tuple[str, ...] = ("php", "libapache2-mod-php", "php-cli")
+# A version PHP itself reports, which may be outside the selector's allowlist.
+DETECTED_VERSION_RE = re.compile(r"^\d+\.\d+$")
 
 _EXTENSION_RE = re.compile(r"^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$")
 _SIZE_RE = re.compile(r"^(?:-1|\d{1,9}[KMGkmg]?)$")
@@ -149,6 +165,62 @@ def get_option(name: str) -> Option | None:
 # -- validation -----------------------------------------------------------
 
 
+def clean_version(raw: object) -> str:
+    """Normalise a requested PHP version, or raise ValueError.
+
+    Blank, `distro`, and `default` mean the archive's `php` metapackage.
+    `8.5`, `php8.5`, and `PHP 8.5` all mean the same pin. Anything else is
+    refused — the string is later used as an apt package name.
+    """
+    if not isinstance(raw, str):
+        raise ValueError("PHP version must be text")
+    value = "".join(raw.strip().lower().split())
+    if value.startswith("php"):
+        value = value[3:]
+    if value in {"", "distro", "default"}:
+        return ""
+    if value not in SELECTABLE_VERSIONS:
+        allowed = ", ".join(SELECTABLE_VERSIONS)
+        raise ValueError(f"PHP version must be {allowed}, or blank for the distro default")
+    return value
+
+
+def runtime_packages(version: str = "") -> tuple[str, ...]:
+    """The packages that make a PHP install: the runtime, Apache module, and CLI.
+
+    `version` is either blank or one already accepted by clean_version (or a
+    `X.Y` string PHP itself reported). It is not taken from a request here.
+    """
+    if not version:
+        return DISTRO_RUNTIME
+    if not DETECTED_VERSION_RE.fullmatch(version):
+        raise ValueError(f"not a PHP version: {version!r}")
+    return (f"php{version}", f"libapache2-mod-php{version}", f"php{version}-cli")
+
+
+def extension_package(name: str, version: str = "") -> str:
+    """`curl` -> `php-curl`, or `php8.5-curl` when a version is pinned."""
+    if version:
+        if not DETECTED_VERSION_RE.fullmatch(version):
+            raise ValueError(f"not a PHP version: {version!r}")
+        return f"php{version}-{name}"
+    return PACKAGE_PREFIX + name
+
+
+def apache_module(version: str) -> str:
+    """`8.5` -> `php8.5`, the name `a2enmod` expects."""
+    if not DETECTED_VERSION_RE.fullmatch(version):
+        raise ValueError(f"not a PHP version: {version!r}")
+    return f"php{version}"
+
+
+def cli_binary(version: str) -> Path:
+    """`8.5` -> `/usr/bin/php8.5`."""
+    if not DETECTED_VERSION_RE.fullmatch(version):
+        raise ValueError(f"not a PHP version: {version!r}")
+    return Path(f"/usr/bin/php{version}")
+
+
 def clean_extension(raw: object) -> str:
     """Normalise one extension name, or raise ValueError saying why not.
 
@@ -265,13 +337,23 @@ def clean_options(data: Mapping[str, object]) -> tuple[dict[str, str], list[str]
 class PhpConfig:
     extensions: tuple[str, ...] = DEFAULT_EXTENSIONS
     options: dict[str, str] = field(default_factory=dict)
+    # "" is the distro metapackage. A pin is one of SELECTABLE_VERSIONS.
+    version: str = ""
+
+    @property
+    def runtime_packages(self) -> tuple[str, ...]:
+        return runtime_packages(self.version)
 
     @property
     def packages(self) -> tuple[str, ...]:
-        return tuple(PACKAGE_PREFIX + name for name in self.extensions)
+        return tuple(extension_package(name, self.version) for name in self.extensions)
 
     def to_json(self) -> str:
-        payload = {"extensions": list(self.extensions), "options": self.options}
+        payload = {
+            "extensions": list(self.extensions),
+            "options": self.options,
+            "version": self.version,
+        }
         return json.dumps(payload, indent=2, sort_keys=True)
 
     @classmethod
@@ -284,7 +366,12 @@ class PhpConfig:
             extensions = DEFAULT_EXTENSIONS
         raw_options = data.get("options")
         options, _ = clean_options(raw_options) if isinstance(raw_options, dict) else ({}, [])
-        return cls(extensions=extensions, options=options)
+        raw_version = data.get("version", "")
+        try:
+            version = clean_version("" if raw_version is None else raw_version)
+        except ValueError:
+            version = ""
+        return cls(extensions=extensions, options=options, version=version)
 
 
 def load_config(paths) -> PhpConfig:

@@ -1,6 +1,33 @@
-{# The PHP page's own controls: the extensions Lamplight keeps installed, and the
-   php.ini directives it writes. Re-fetched whole after a job, like every other
-   partial, so this markup has no second copy in JavaScript. #}
+{# The PHP page's own controls: which PHP, the extensions Lamplight keeps
+   installed, and the php.ini directives it writes. Re-fetched whole after a
+   job, like every other partial, so this markup has no second copy in JavaScript. #}
+<section class="panel">
+  <header class="panel-head">
+    <h2>Version</h2>
+    <span class="muted">{% if php.version %}PHP {{ php.version }}{% else %}distro default{% endif %}</span>
+  </header>
+
+  <form class="form" id="php-version-form">
+    <label>
+      PHP version
+      <select name="version">
+        <option value="" {{ 'selected' if not php.version }}>Distro default</option>
+        {% for version in php.versions %}
+          <option value="{{ version }}" {{ 'selected' if php.version == version }}>PHP {{ version }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <p class="hint">Distro default installs the <code class="mono">php</code> package from the
+      archives already configured on this machine. Choosing 8.3, 8.4, or 8.5 installs that
+      version's packages — <code class="mono">php8.5</code>, <code class="mono">libapache2-mod-php8.5</code>,
+      and <code class="mono">php8.5-curl</code> when 8.5 is pinned. If that version is not already in
+      apt, Lamplight adds Ondřej Surý's repository — a third-party source, added only for this
+      choice. Switching back to distro default does not remove that repository or downgrade
+      packages.</p>
+    <button class="btn primary" type="submit">Apply version</button>
+  </form>
+</section>
+
 <section class="panel">
   <header class="panel-head">
     <h2>Extensions</h2>

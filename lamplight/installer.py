@@ -174,16 +174,21 @@ class Installer:
         and installed separately, so a half-applied change stays visible.
         """
         previous = php.load_config(self.paths)
-        php.save_config(self.paths, php.PhpConfig(extensions=desired, options=previous.options))
+        php.save_config(
+            self.paths,
+            php.PhpConfig(extensions=desired, options=previous.options, version=previous.version),
+        )
         self._log(job_id, "Selection saved: " + (", ".join(desired) or "none"))
 
         if not self._installed("php"):
             self._log(job_id, "PHP is not installed yet — this is what Install PHP will use.")
             return
 
+        version = previous.version
         candidates = tuple(dict.fromkeys(desired + previous.extensions))
-        states = systemops.package_states(php.PACKAGE_PREFIX + name for name in candidates)
-        installed = {name: states[php.PACKAGE_PREFIX + name].installed for name in candidates}
+        packages = {name: php.extension_package(name, version) for name in candidates}
+        states = systemops.package_states(packages.values())
+        installed = {name: states[packages[name]].installed for name in candidates}
         add = [name for name in desired if not installed[name]]
         # Only ever remove what Lamplight put there. A php-* package installed by
         # hand was never ticked here, so unticking it is not something the page
@@ -197,6 +202,7 @@ class Installer:
         self._require_root()
         if add:
             self._log(job_id, "Adding: " + ", ".join(add))
+            self._ensure_php_repository(job_id, version)
             self._run_checked(job_id, ["apt-get", "update"])
             self._run_checked(
                 job_id,
@@ -205,13 +211,13 @@ class Installer:
                     "install",
                     "-y",
                     "--no-install-recommends",
-                    *(php.PACKAGE_PREFIX + name for name in add),
+                    *(packages[name] for name in add),
                 ],
             )
         if drop:
             self._log(job_id, "Removing: " + ", ".join(drop))
             self._run_checked(
-                job_id, ["apt-get", "remove", "-y", *(php.PACKAGE_PREFIX + name for name in drop)]
+                job_id, ["apt-get", "remove", "-y", *(packages[name] for name in drop)]
             )
             # php-curl and friends are metapackages; the versioned module they
             # pull in only goes away with autoremove.
@@ -221,7 +227,12 @@ class Installer:
     def apply_php_options(self, job_id: str, options: dict[str, str]) -> None:
         """Save the option overrides and write them into every installed SAPI."""
         previous = php.load_config(self.paths)
-        php.save_config(self.paths, php.PhpConfig(extensions=previous.extensions, options=options))
+        php.save_config(
+            self.paths,
+            php.PhpConfig(
+                extensions=previous.extensions, options=options, version=previous.version
+            ),
+        )
         self._log(job_id, f"{len(options)} option(s) saved to {self.paths.php_path}")
         self._write_php_drop_ins(job_id, options)
         self._reload_units(job_id, self._component("php"))
@@ -256,16 +267,187 @@ class Installer:
             self._log(job_id, f"Removing {sapi.drop_in}")
             sapi.drop_in.unlink()
 
+    def set_php_version(self, job_id: str, version: str) -> None:
+        """Save a pin, and install it when PHP is already on the machine.
+
+        `version` is blank for the distro metapackage, or one of
+        php.SELECTABLE_VERSIONS. Chosen before PHP exists, it waits for
+        Install PHP. Chosen after, this job installs that version's packages
+        and makes Apache and the `php` command use it. The previous version's
+        packages are left installed.
+        """
+        previous = php.load_config(self.paths)
+        php.save_config(
+            self.paths,
+            php.PhpConfig(
+                extensions=previous.extensions, options=previous.options, version=version
+            ),
+        )
+        label = f"PHP {version}" if version else "the distro default"
+        self._log(job_id, f"PHP version saved: {label}")
+
+        if not self._runtime_installed(previous):
+            self._log(job_id, "PHP is not installed yet — this is what Install PHP will use.")
+            return
+
+        self._require_root()
+        self._install_selected_php(job_id)
+        self._activate_php(job_id)
+        self._write_php_drop_ins(job_id, previous.options)
+        self._reload_units(job_id, self._component("php"))
+
+    def _runtime_installed(self, php_config: php.PhpConfig) -> bool:
+        states = systemops.package_states(php_config.runtime_packages)
+        return all(states[pkg].installed for pkg in php_config.runtime_packages)
+
+    def _install_selected_php(self, job_id: str) -> None:
+        """apt-get install the runtime and extensions saved in php.json."""
+        php_config = php.load_config(self.paths)
+        self._ensure_php_repository(job_id, php_config.version)
+        self._run_checked(job_id, ["apt-get", "update"])
+        packages = list(php_config.runtime_packages) + list(php_config.packages)
+        self._log(job_id, f"Installing: {', '.join(packages)}")
+        self._run_checked(
+            job_id, ["apt-get", "install", "-y", "--no-install-recommends", *packages]
+        )
+
+    def _ensure_php_repository(self, job_id: str, version: str) -> None:
+        """Add Surý's repository when a pinned version is not already in apt.
+
+        A blank version never reaches here with a third-party source: the
+        distro metapackage is installed from whatever archives are configured.
+        `apt-cache` answering "unknown" is the only signal that adds a repo.
+        A failure to answer is left for apt itself.
+        """
+        if not version:
+            return
+        package = php.runtime_packages(version)[0]
+        known = systemops.apt_packages_exist([package]).get(package)
+        if known is True:
+            self._log(job_id, f"{package} is already in apt — not adding a repository.")
+            return
+        if known is None:
+            self._log(job_id, f"apt could not say whether {package} exists — trying the install.")
+            return
+        if systemops.is_ubuntu_family():
+            self._add_ondrej_ppa(job_id)
+            return
+        if systemops.is_debian_family():
+            self._add_sury_debian(job_id)
+            return
+        raise RuntimeError(
+            f"{package} is not in apt, and Lamplight does not know how to add a "
+            "PHP repository on this distro."
+        )
+
+    def _add_ondrej_ppa(self, job_id: str) -> None:
+        self._log(job_id, f"Adding {php.SURY_PPA} so the pinned PHP version can be installed.")
+        if not systemops.which("add-apt-repository"):
+            self._run_checked(job_id, ["apt-get", "install", "-y", "software-properties-common"])
+        self._run_checked(job_id, ["add-apt-repository", "-y", php.SURY_PPA])
+
+    def _add_sury_debian(self, job_id: str) -> None:
+        codename = systemops.debian_codename()
+        self._log(job_id, "Adding packages.sury.org so the pinned PHP version can be installed.")
+        self._run_checked(job_id, ["apt-get", "install", "-y", "ca-certificates", "curl"])
+        self._run_checked(
+            job_id, ["curl", "-fsSL", "-o", str(php.SURY_KEYRING_DEB), php.SURY_KEYRING_URL]
+        )
+        self._run_checked(job_id, ["dpkg", "-i", str(php.SURY_KEYRING_DEB)])
+        line = (
+            f"deb [signed-by={php.SURY_KEYRING}] https://packages.sury.org/php/ {codename} main\n"
+        )
+        self._log(job_id, f"Writing {php.SURY_LIST}")
+        config.atomic_write(php.SURY_LIST, line, mode=0o644)
+
+    def _activate_php(self, job_id: str) -> None:
+        """Leave exactly one mod_php enabled, and point the `php` command at it."""
+        php_config = php.load_config(self.paths)
+        version = php_config.version or self._detected_php_version()
+        if not version:
+            self._log(job_id, "Could not tell which PHP version Apache should load.")
+            return
+        self._switch_apache_module(job_id, version)
+        self._switch_cli(job_id, version)
+        self._log_leftover_versions(job_id, version)
+
+    def _detected_php_version(self) -> str:
+        if not systemops.which("php"):
+            return ""
+        try:
+            result = systemops.run(
+                ["php", "-r", "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;"], timeout=8
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        text = (result.stdout or "").strip()
+        return text if php.DETECTED_VERSION_RE.fullmatch(text) else ""
+
+    def _switch_apache_module(self, job_id: str, version: str) -> None:
+        if not systemops.which("a2enmod"):
+            self._log(job_id, "a2enmod is not installed — Apache will pick up PHP when it is.")
+            return
+        target = php.apache_module(version)
+        enabled = self._enabled_php_modules()
+        for name in enabled:
+            if name != target:
+                self._run(job_id, ["a2dismod", name])
+        self._run_checked(job_id, ["a2enmod", target])
+
+    def _enabled_php_modules(self) -> list[str]:
+        root = php.APACHE_MODS_ENABLED
+        if not root.is_dir():
+            return []
+        names = []
+        for path in sorted(root.glob("php*.load")):
+            name = path.name[: -len(".load")]
+            if php.DETECTED_VERSION_RE.fullmatch(name.removeprefix("php")):
+                names.append(name)
+        return names
+
+    def _switch_cli(self, job_id: str, version: str) -> None:
+        binary = php.cli_binary(version)
+        if not binary.exists() or not systemops.which("update-alternatives"):
+            return
+        # --set fails when the package has not registered the alternative yet.
+        # The install still stands; the log shows why `php` was left alone.
+        code = self._run(job_id, ["update-alternatives", "--set", "php", str(binary)])
+        if code != 0:
+            self._log(job_id, f"{binary} is installed, but it is not the `php` alternative yet.")
+
+    def _log_leftover_versions(self, job_id: str, version: str) -> None:
+        root = php.PHP_ETC
+        if not root.is_dir():
+            return
+        others = sorted(
+            path.name
+            for path in root.iterdir()
+            if path.is_dir()
+            and path.name != version
+            and php.DETECTED_VERSION_RE.fullmatch(path.name)
+        )
+        if not others:
+            return
+        self._log(
+            job_id,
+            f"PHP {', '.join(others)} is still installed and is not the module Apache loads.",
+        )
+
     # -- apt --------------------------------------------------------------
 
     def _packages(self, component) -> list[str]:
         """What this component installs. PHP's extension list is editable, so it
         comes from php.json rather than from the catalog."""
         if component.id == "php":
-            return list(component.packages) + list(php.load_config(self.paths).packages)
+            php_config = php.load_config(self.paths)
+            return list(php_config.runtime_packages) + list(php_config.packages)
         return list(component.all_packages)
 
     def _apt_install(self, job_id: str, component) -> None:
+        if component.id == "php":
+            self._install_selected_php(job_id)
+            self._activate_php(job_id)
+            return
         self._run_checked(job_id, ["apt-get", "update"])
         if component.id == "phpmyadmin":
             self._preseed_phpmyadmin(job_id)
@@ -423,6 +605,11 @@ class Installer:
         if component is None:
             return False
         if component.kind == "apt":
-            states = systemops.package_states(component.packages)
-            return all(states[pkg].installed for pkg in component.packages)
+            packages = (
+                php.load_config(self.paths).runtime_packages
+                if component.id == "php"
+                else component.packages
+            )
+            states = systemops.package_states(packages)
+            return all(states[pkg].installed for pkg in packages)
         return binary_path(component) is not None

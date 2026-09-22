@@ -36,7 +36,9 @@ def probe(monkeypatch):
     """A host whose state the test writes, without touching dpkg or systemd."""
     state = blank_state()
     monkeypatch.setattr(
-        status, "_probe", lambda: status.HostProbe(components=state, own_memory=None)
+        status,
+        "_probe",
+        lambda php_config=None: status.HostProbe(components=state, own_memory=None),
     )
     return state
 
@@ -187,3 +189,44 @@ def test_lamplight_falls_back_to_its_own_rss_outside_systemd(monkeypatch):
     monkeypatch.setattr(systemops, "firewall_state", systemops.FirewallState)
     monkeypatch.setattr(status, "binary_path", lambda component: None)
     assert status._probe().own_memory == 30 * MB
+
+
+def test_a_pinned_php_counts_as_installed_without_the_metapackage(monkeypatch):
+    from lamplight import php
+
+    installed = {"php8.5", "libapache2-mod-php8.5", "php8.5-cli"}
+
+    def states(names):
+        return {name: systemops.PackageState(installed=name in installed) for name in names}
+
+    monkeypatch.setattr(systemops, "package_states", states)
+    monkeypatch.setattr(
+        systemops,
+        "service_states",
+        lambda names: {name: systemops.ServiceState() for name in names},
+    )
+    monkeypatch.setattr(systemops, "firewall_state", systemops.FirewallState)
+    monkeypatch.setattr(status, "binary_path", lambda component: None)
+    monkeypatch.setattr(systemops, "command_version", lambda argv: "PHP 8.5.1 (cli)")
+
+    probe = status._probe(php.PhpConfig(version="8.5"))
+    assert probe.components["php"]["installed"] is True
+    assert probe.components["php"]["version"] == "PHP 8.5.1 (cli)"
+
+
+def test_the_dashboard_lists_versioned_php_packages(probe):
+    from lamplight import php
+
+    php_item = next(
+        item
+        for item in dashboard(Settings(), php.PhpConfig(version="8.5", extensions=("curl",)))[
+            "components"
+        ]
+        if item["id"] == "php"
+    )
+    assert php_item["packages"] == [
+        "php8.5",
+        "libapache2-mod-php8.5",
+        "php8.5-cli",
+        "php8.5-curl",
+    ]

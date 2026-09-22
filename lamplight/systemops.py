@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 from collections.abc import Iterable
@@ -252,10 +253,33 @@ def read_os_release() -> dict[str, str]:
     return data
 
 
-def is_debian_family() -> bool:
+def _os_ids() -> set[str]:
     info = read_os_release()
-    ids = {info.get("ID", ""), *info.get("ID_LIKE", "").split()}
-    return bool(ids & {"debian", "ubuntu"})
+    return {info.get("ID", ""), *info.get("ID_LIKE", "").split()}
+
+
+def is_ubuntu_family() -> bool:
+    """Ubuntu and derivatives that can use a Launchpad PPA. Zorin is one."""
+    return "ubuntu" in _os_ids()
+
+
+def is_debian_family() -> bool:
+    return bool(_os_ids() & {"debian", "ubuntu"})
+
+
+_CODENAME_RE = re.compile(r"^[a-z]+$")
+
+
+def debian_codename() -> str:
+    """VERSION_CODENAME from os-release, or raise if it is not a plain word.
+
+    Used only to build the Debian Surý source line. A codename with anything
+    other than letters would be rejected rather than written into sources.list.
+    """
+    name = read_os_release().get("VERSION_CODENAME", "")
+    if not _CODENAME_RE.fullmatch(name):
+        raise RuntimeError("Could not read a Debian codename from /etc/os-release.")
+    return name
 
 
 def is_supported() -> bool:

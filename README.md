@@ -88,9 +88,23 @@ does the Lamplight panel itself.
 
 ## Managing PHP
 
-The PHP page has two things the other components do not. Extensions are a list of tags — drop one
-with its ×, or add one by its package name (`php-imap`, not `imap`) — and common PHP options like
-memory limit have their own fields.
+The PHP page has three things the other components do not. A version selector, an extension list —
+drop a tag with its ×, or add one by its package name (`php-imap`, not `imap`) — and common PHP
+options like memory limit have their own fields.
+
+**Version.** Distro default installs the `php` metapackage from the archives already configured on
+the machine. On current Zorin that is PHP 8.3, because that is what Zorin's Ubuntu archive ships.
+Pinning 8.3, 8.4, or 8.5 installs the versioned packages instead (`php8.5`, `libapache2-mod-php8.5`,
+`php8.5-cli`, `php8.5-curl`, and so on). If apt already knows that version, nothing else is added.
+If it does not, Lamplight adds Ondřej Surý's repository: `ppa:ondrej/php` on Ubuntu and derivatives
+such as Zorin, and `packages.sury.org` on Debian. That is a third-party trust decision, and it
+happens only from this explicit choice. Apache is switched onto that one module — it can load only
+one `mod_php` — and the `php` command is pointed at the same version. The previous version's
+packages are left installed. Switching back to distro default does not remove the Surý repository
+or downgrade anything; once that repository is enabled, apt's unversioned `php` package may resolve
+to Surý's current default.
+
+A pin chosen before PHP is installed is what **Install PHP** uses.
 
 Lamplight never edits your `php.ini`. It writes a
 single drop-in instead:
@@ -105,14 +119,18 @@ gets the same file. Clear a field and that directive stops being overridden; cle
 the drop-in is deleted outright. Under each field the page shows the value actually in effect and
 which file set it, so you can see what you are overriding before you override it.
 
-Both live in `/etc/lamplight/php.json`:
+All three live in `/etc/lamplight/php.json`:
 
 ```json
 {
+  "version": "8.5",
   "extensions": ["mysql", "curl", "mbstring", "redis"],
   "options": { "memory_limit": "512M", "date.timezone": "Europe/Berlin" }
 }
 ```
+
+Leave `version` out, or set it to `""`, for the distro package. With a pin, the extension names in
+the file stay `curl`; apt installs `php8.5-curl`.
 
 Values are validated before anything is written — an option only accepts the shape its directive
 takes, so nothing typed into the browser can become a second line of the `.ini`.
@@ -143,8 +161,13 @@ proxy this panel to the internet.
   images — the panel works on a machine with no internet and has nothing to exfiltrate to.
 - **Commands.** Every command is an argv list passed to `Popen` without `shell=True`. Only the
   directives in `php.OPTIONS` can be set, every value is validated against its kind before being
-  written, and an extension name is only ever used as `php-<name>` in an apt argument list — so
-  nothing typed into the browser can become a second line of the `.ini`.
+  written, and an extension name is only ever used as `php-<name>` (or `php8.5-<name>` when a
+  version is pinned) in an apt argument list — so nothing typed into the browser can become a
+  second line of the `.ini`.
+- **PHP versions.** The selector accepts only 8.3, 8.4, 8.5, or blank. Surý's repository is added
+  only when a chosen version is not already in apt. The version never becomes part of a shell
+  command or a URL; a Debian codename is written into `sources.list` only when it is a single word
+  read from `/etc/os-release`.
 - **The firewall button.** The ports come from `Component.firewall_ports` in the catalog, never from
   the request, so only Apache's 80/443 can be touched: `POST /api/components/mariadb/firewall-open`
   is refused rather than opening 3306. Lamplight never enables or disables ufw itself and never

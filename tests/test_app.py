@@ -373,8 +373,10 @@ def test_the_token_is_never_echoed_back_into_a_page(app, client):
 def test_only_the_php_page_carries_the_php_panels(client):
     body = client.get("/c/php").get_data(as_text=True)
     assert 'id="php-panel"' in body
+    assert 'id="php-version-form"' in body
     assert 'id="php-extensions-form"' in body
     assert 'id="php-options-form"' in body
+    assert "Distro default" in body
     assert 'id="php-panel"' not in client.get("/c/apache").get_data(as_text=True)
 
 
@@ -435,6 +437,51 @@ def test_the_selection_decides_what_install_php_would_pull_in(client, paths):
     assert php_item["packages"] == ["php", "libapache2-mod-php", "php-cli", "php-curl"]
 
 
+def test_a_version_pin_is_saved_and_shown(client, paths):
+    from lamplight import php
+
+    job_id = client.post("/api/php/version", json={"version": "PHP 8.5"}).get_json()["job_id"]
+    assert wait_for_job(client, job_id)["status"] == "success"
+    assert php.load_config(paths).version == "8.5"
+    body = client.get("/c/php").get_data(as_text=True)
+    assert 'value="8.5" selected' in body
+    assert "php8.5-mysql" in body
+
+
+def test_a_bad_version_is_refused_before_a_job_is_created(client):
+    before = len(client.get("/api/jobs").get_json()["jobs"])
+    assert client.post("/api/php/version", json={"version": "8.6"}).status_code == 400
+    assert client.post("/api/php/version", json={"version": 85}).status_code == 400
+    assert client.post("/api/php/version", json={}).status_code == 400
+    assert len(client.get("/api/jobs").get_json()["jobs"]) == before
+
+
+def test_an_unknown_extension_is_refused_once_the_pinned_runtime_is_known(
+    client, paths, monkeypatch
+):
+    from lamplight import php, systemops
+
+    php.save_config(paths, php.PhpConfig(version="8.5", extensions=()))
+
+    def exist(names):
+        return {name: name != "php8.5-nope" for name in names}
+
+    monkeypatch.setattr(systemops, "apt_packages_exist", exist)
+    response = client.post("/api/php/extensions", json={"extensions": ["nope"]})
+    assert response.status_code == 400
+    assert "php8.5-nope" in response.get_json()["error"]
+
+
+def test_extensions_are_not_refused_before_the_pinned_runtime_is_in_apt(client, paths, monkeypatch):
+    from lamplight import php, systemops
+
+    php.save_config(paths, php.PhpConfig(version="8.5", extensions=()))
+    monkeypatch.setattr(
+        systemops, "apt_packages_exist", lambda names: {name: False for name in names}
+    )
+    assert client.post("/api/php/extensions", json={"extensions": ["curl"]}).status_code == 200
+
+
 def test_options_are_saved_and_shown_back(client, paths):
     from lamplight import php
 
@@ -467,6 +514,7 @@ def test_php_endpoints_want_the_right_shape(client):
     assert client.post("/api/php/extensions", json={"extensions": "curl"}).status_code == 400
     assert client.post("/api/php/options", json=["nope"]).status_code == 400
     assert client.post("/api/php/extensions", json={}).status_code == 400
+    assert client.post("/api/php/version", json=[]).status_code == 400
 
 
 def test_php_endpoints_are_behind_the_token(app):
@@ -474,6 +522,7 @@ def test_php_endpoints_are_behind_the_token(app):
     assert client.get("/api/php").status_code == 401
     assert client.post("/api/php/options", json={"options": {}}).status_code == 401
     assert client.post("/api/php/extensions", json={"extensions": []}).status_code == 401
+    assert client.post("/api/php/version", json={"version": "8.5"}).status_code == 401
     assert client.get("/partials/php").status_code == 302
 
 

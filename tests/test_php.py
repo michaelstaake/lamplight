@@ -172,11 +172,15 @@ def test_options_come_back_in_catalog_order():
 
 
 def test_config_round_trips(paths):
-    php.save_config(paths, php.PhpConfig(extensions=("curl",), options={"memory_limit": "256M"}))
+    php.save_config(
+        paths, php.PhpConfig(extensions=("curl",), options={"memory_limit": "256M"}, version="8.5")
+    )
     reloaded = php.load_config(paths)
     assert reloaded.extensions == ("curl",)
     assert reloaded.options == {"memory_limit": "256M"}
-    assert reloaded.packages == ("php-curl",)
+    assert reloaded.version == "8.5"
+    assert reloaded.packages == ("php8.5-curl",)
+    assert reloaded.runtime_packages == ("php8.5", "libapache2-mod-php8.5", "php8.5-cli")
 
 
 def test_a_missing_file_is_written_with_the_defaults(paths):
@@ -203,6 +207,33 @@ def test_junk_on_disk_is_dropped_rather_than_loaded(paths):
     loaded = php.load_config(paths)
     assert loaded.extensions == ("curl",)
     assert loaded.options == {"memory_limit": "256M"}
+    assert loaded.version == ""
+
+
+def test_a_bad_version_on_disk_falls_back_to_the_distro(paths):
+    paths.php_path.write_text(
+        json.dumps({"version": "8.6", "extensions": ["curl"]}), encoding="utf-8"
+    )
+    loaded = php.load_config(paths)
+    assert loaded.version == ""
+    assert loaded.extensions == ("curl",)
+    assert loaded.packages == ("php-curl",)
+
+
+@pytest.mark.parametrize("raw", ["8.5", "php8.5", "PHP 8.5", "  8.5  "])
+def test_version_spellings_collapse_to_the_pin(raw):
+    assert php.clean_version(raw) == "8.5"
+
+
+@pytest.mark.parametrize("raw", ["", "distro", "default", "PHP"])
+def test_a_blank_version_is_the_distro_default(raw):
+    assert php.clean_version(raw) == ""
+
+
+@pytest.mark.parametrize("raw", ["8.6", "8", "latest", 8.5, "8.5;rm", "../8.5", "php8.5-curl"])
+def test_bad_versions_are_refused(raw):
+    with pytest.raises(ValueError):
+        php.clean_version(raw)
 
 
 # -- the drop-in ----------------------------------------------------------
@@ -253,6 +284,18 @@ def test_php_installs_the_saved_selection_not_the_catalog_default(paths, store):
         "php-cli",
         "php-curl",
         "php-redis",
+    ]
+
+
+def test_a_pinned_install_uses_versioned_package_names(paths, store):
+    php.save_config(paths, php.PhpConfig(version="8.5", extensions=("curl", "redis")))
+    installer = Installer(paths, store)
+    assert installer._packages(get_component("php")) == [
+        "php8.5",
+        "libapache2-mod-php8.5",
+        "php8.5-cli",
+        "php8.5-curl",
+        "php8.5-redis",
     ]
 
 
@@ -362,3 +405,164 @@ def test_atomic_write_leaves_no_partial_file(tmp_path):
     config.atomic_write(target, "memory_limit = 512M\n", mode=0o644)
     assert target.read_text() == "memory_limit = 512M\n"
     assert list(tmp_path.iterdir()) == [target]
+
+
+# -- choosing a version ---------------------------------------------------
+
+
+def _ran(monkeypatch):
+    ran = []
+    monkeypatch.setattr(systemops, "is_root", lambda: True)
+    monkeypatch.setattr(Installer, "_run", lambda self, job_id, argv: ran.append(list(argv)) or 0)
+    monkeypatch.setattr(systemops, "service_exists", lambda name: False)
+    monkeypatch.setattr(systemops, "which", lambda name: "/usr/bin/" + name)
+    return ran
+
+
+def _states(installed):
+    return lambda names: {
+        name: systemops.PackageState(installed=name in installed) for name in names
+    }
+
+
+def test_a_version_chosen_before_php_is_installed_only_saves(paths, store, monkeypatch):
+    ran = _ran(monkeypatch)
+    monkeypatch.setattr(systemops, "package_states", _states(set()))
+    installer = Installer(paths, store)
+    job_id = store.create("php", "version")
+    installer.set_php_version(job_id, "8.4")
+    assert php.load_config(paths).version == "8.4"
+    assert ran == []
+    assert "not installed yet" in logged(store, job_id)
+
+
+def test_changing_the_version_installs_the_pin_without_adding_a_known_repo(
+    paths, store, monkeypatch
+):
+    php.save_config(paths, php.PhpConfig(extensions=("curl",), options={"memory_limit": "256M"}))
+    ran = _ran(monkeypatch)
+    monkeypatch.setattr(
+        systemops, "package_states", _states({"php", "libapache2-mod-php", "php-cli"})
+    )
+    monkeypatch.setattr(
+        systemops, "apt_packages_exist", lambda names: {name: True for name in names}
+    )
+    monkeypatch.setattr(php, "PHP_ETC", paths.data_dir / "no-php-etc")
+
+    installer = Installer(paths, store)
+    job_id = store.create("php", "version")
+    installer.set_php_version(job_id, "8.5")
+
+    saved = php.load_config(paths)
+    assert saved.version == "8.5"
+    assert saved.extensions == ("curl",)
+    assert saved.options == {"memory_limit": "256M"}
+    assert ["add-apt-repository", "-y", "ppa:ondrej/php"] not in ran
+    assert [
+        "apt-get",
+        "install",
+        "-y",
+        "--no-install-recommends",
+        "php8.5",
+        "libapache2-mod-php8.5",
+        "php8.5-cli",
+        "php8.5-curl",
+    ] in ran
+    assert ["a2enmod", "php8.5"] in ran
+    assert "not adding a repository" in logged(store, job_id)
+
+
+def test_pinning_a_version_apt_lacks_adds_the_ppa_and_switches_apache(
+    paths, store, monkeypatch, tmp_path
+):
+    ran = _ran(monkeypatch)
+    monkeypatch.setattr(systemops, "is_ubuntu_family", lambda: True)
+    monkeypatch.setattr(
+        systemops, "apt_packages_exist", lambda names: {name: False for name in names}
+    )
+    monkeypatch.setattr(systemops, "package_states", _states({"apache2"}))
+    mods = tmp_path / "mods-enabled"
+    mods.mkdir()
+    (mods / "php8.3.load").write_text("", encoding="utf-8")
+    monkeypatch.setattr(php, "APACHE_MODS_ENABLED", mods)
+    etc = tmp_path / "etc-php"
+    (etc / "8.3").mkdir(parents=True)
+    (etc / "8.5").mkdir()
+    monkeypatch.setattr(php, "PHP_ETC", etc)
+    binary = tmp_path / "php8.5"
+    binary.write_text("", encoding="utf-8")
+    monkeypatch.setattr(php, "cli_binary", lambda version: binary)
+
+    php.save_config(paths, php.PhpConfig(version="8.5", extensions=("curl",)))
+    installer = Installer(paths, store)
+    job_id = store.create("php", "install")
+    installer.install(job_id, "php")
+
+    assert ["add-apt-repository", "-y", "ppa:ondrej/php"] in ran
+    assert not any("software-properties-common" in argv for argv in ran)
+    assert [
+        "apt-get",
+        "install",
+        "-y",
+        "--no-install-recommends",
+        "php8.5",
+        "libapache2-mod-php8.5",
+        "php8.5-cli",
+        "php8.5-curl",
+    ] in ran
+    assert ["a2dismod", "php8.3"] in ran
+    assert ["a2enmod", "php8.5"] in ran
+    assert ["update-alternatives", "--set", "php", str(binary)] in ran
+    assert "still installed" in logged(store, job_id)
+
+
+def test_debian_gets_the_sury_archive_instead_of_the_ppa(paths, store, monkeypatch, tmp_path):
+    ran = _ran(monkeypatch)
+    monkeypatch.setattr(systemops, "is_ubuntu_family", lambda: False)
+    monkeypatch.setattr(systemops, "is_debian_family", lambda: True)
+    monkeypatch.setattr(systemops, "debian_codename", lambda: "bookworm")
+    monkeypatch.setattr(
+        systemops, "apt_packages_exist", lambda names: {name: False for name in names}
+    )
+    monkeypatch.setattr(systemops, "package_states", _states({"apache2"}))
+    monkeypatch.setattr(php, "SURY_LIST", tmp_path / "sury-php.list")
+    monkeypatch.setattr(php, "PHP_ETC", tmp_path / "etc-php")
+
+    php.save_config(paths, php.PhpConfig(version="8.4", extensions=("curl",)))
+    installer = Installer(paths, store)
+    installer.install(store.create("php", "install"), "php")
+
+    assert ["curl", "-fsSL", "-o", str(php.SURY_KEYRING_DEB), php.SURY_KEYRING_URL] in ran
+    assert ["dpkg", "-i", str(php.SURY_KEYRING_DEB)] in ran
+    assert not any(argv and argv[0] == "add-apt-repository" for argv in ran)
+    assert (tmp_path / "sury-php.list").read_text(encoding="utf-8") == (
+        "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] "
+        "https://packages.sury.org/php/ bookworm main\n"
+    )
+
+
+def test_setting_extensions_uses_the_pinned_package_names(paths, store, monkeypatch):
+    php.save_config(paths, php.PhpConfig(version="8.5", extensions=("curl", "gd")))
+    installed = {"php8.5", "libapache2-mod-php8.5", "php8.5-cli", "php8.5-curl", "php8.5-gd"}
+    monkeypatch.setattr(systemops, "package_states", _states(installed))
+    monkeypatch.setattr(
+        systemops, "apt_packages_exist", lambda names: {name: True for name in names}
+    )
+    ran = _ran(monkeypatch)
+
+    installer = Installer(paths, store)
+    installer.set_php_extensions(store.create("php", "extensions"), ("curl", "redis"))
+
+    assert ["apt-get", "install", "-y", "--no-install-recommends", "php8.5-redis"] in ran
+    assert ["apt-get", "remove", "-y", "php8.5-gd"] in ran
+    assert php.load_config(paths).version == "8.5"
+
+
+def test_a_pinned_php_counts_as_installed_without_the_metapackage(paths, store, monkeypatch):
+    php.save_config(paths, php.PhpConfig(version="8.5"))
+    monkeypatch.setattr(
+        systemops,
+        "package_states",
+        _states({"php8.5", "libapache2-mod-php8.5", "php8.5-cli"}),
+    )
+    assert Installer(paths, store)._installed("php") is True
