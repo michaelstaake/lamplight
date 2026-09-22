@@ -515,7 +515,9 @@ function openMariaDbModal(name, source) {
 }
 
 document.addEventListener("submit", async (event) => {
-  const handler = FORMS[event.target.id];
+  // A control named "id" replaces the form's own id, so the attribute is read
+  // directly. Otherwise delete and folder save close the dialog and do nothing.
+  const handler = FORMS[event.target.getAttribute("id")];
   if (!handler) return;
   event.preventDefault();
   try {
