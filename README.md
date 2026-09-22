@@ -60,6 +60,24 @@ sudo /opt/lamplight/.venv/bin/lamplight-token
 
 To change the port, edit `/etc/lamplight/lamplight.env` and run `systemctl restart lamplight`.
 
+## Update Lamplight
+
+From the checkout you cloned:
+
+```bash
+cd lamplight
+git pull
+sudo ./install.sh
+```
+
+That copies the new code to `/opt/lamplight`, rebuilds the virtualenv, and restarts `lamplight.service`. The panel version in the sidebar changes when the new process is up. `/var/lib/lamplight` and `/etc/lamplight` stay, including the access token, so the URL you already have keeps working. Apache, MariaDB, PHP, phpMyAdmin, and Mailpit are left alone.
+
+`install.sh` rewrites `/etc/lamplight/lamplight.env` from its defaults. If you moved the panel off port 3847, pass that port again or the file goes back to `127.0.0.1:3847`:
+
+```bash
+sudo LAMPLIGHT_PORT=8080 ./install.sh
+```
+
 ### Run it from a checkout
 
 For working on Lamplight itself:
