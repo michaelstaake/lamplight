@@ -215,6 +215,12 @@ def host(monkeypatch, tmp_path):
     return fake
 
 
+@pytest.fixture(autouse=True)
+def _quiet_upstream(monkeypatch):
+    """Page tests must not call GitHub. A test that cares sets its own answer."""
+    monkeypatch.setattr("lamplight.app.upstream_commit", lambda: "")
+
+
 @pytest.fixture
 def app(paths, host):
     made = create_app(paths=paths)

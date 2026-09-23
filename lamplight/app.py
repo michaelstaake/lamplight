@@ -24,6 +24,7 @@ from flask import (
 from . import (
     __version__,
     catalog,
+    commit_id,
     config,
     db,
     display_version,
@@ -33,6 +34,8 @@ from . import (
     php,
     status,
     systemops,
+    update_available,
+    upstream_commit,
     vhosts,
 )
 from .firewall import FIREWALL_ACTIONS
@@ -46,6 +49,8 @@ EDITABLE_SETTINGS = ("port", "document_root")
 STREAM_POLL_SECONDS = 0.3
 STREAM_MAX_SECONDS = 3600
 MASKED_TOKEN = "•" * 12
+DISMISSED_UPDATE_COOKIE = "lamplight_dismissed_version"
+_DISMISS_NEXT = frozenset({"/", "/settings"})
 
 
 def create_app(*, paths: config.AppPaths | None = None) -> Flask:
@@ -199,6 +204,7 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
             jobs=store.list(),
             history=store.history,
             job=job,
+            update_sha=pending_update(),
         )
 
     def readable_logs(item: dict) -> bool:
@@ -256,7 +262,37 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
             token_path=str(paths.auth_path),
             data_dir=str(paths.data_dir),
             db_path=str(paths.db_path),
+            update_sha=pending_update(),
         )
+
+    def pending_update() -> str:
+        """Upstream SHA worth warning about, or '' when the banner should stay hidden."""
+        upstream = upstream_commit()
+        if not update_available(commit_id(), upstream):
+            return ""
+        if request.cookies.get(DISMISSED_UPDATE_COOKIE) == upstream:
+            return ""
+        return upstream
+
+    @app.post("/update/dismiss")
+    @require_auth
+    def dismiss_update():
+        """Remember this upstream commit in the browser so the banner stays down."""
+        upstream = upstream_commit()
+        target = request.form.get("next")
+        if target not in _DISMISS_NEXT:
+            target = url_for("home")
+        response = redirect(target)
+        if update_available(commit_id(), upstream):
+            response.set_cookie(
+                DISMISSED_UPDATE_COOKIE,
+                upstream,
+                max_age=60 * 60 * 24 * 365,
+                path="/",
+                httponly=True,
+                samesite="Strict",
+            )
+        return response
 
     # -- html partials, so card markup is never duplicated in JavaScript --
 

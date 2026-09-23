@@ -373,6 +373,53 @@ def test_the_root_banner_and_settings_agree_about_the_host(client):
     assert f"<dd>{'yes' if rooted else 'no'}</dd>" in settings
 
 
+def test_dashboard_and_settings_warn_when_github_main_differs(client, monkeypatch):
+    upstream = "b" * 40
+    monkeypatch.setattr("lamplight.app.upstream_commit", lambda: upstream)
+    monkeypatch.setattr("lamplight.app.commit_id", lambda: "a" * 7)
+    for path in ("/", "/settings"):
+        body = client.get(path).get_data(as_text=True)
+        assert "An update may be available." in body
+        assert "Dismiss this version" in body
+    assert "An update may be available." not in client.get("/c/apache").get_data(as_text=True)
+
+
+def test_a_matching_commit_and_an_unknown_one_stay_quiet(client, monkeypatch):
+    full = "abc1234" + "d" * 33
+    monkeypatch.setattr("lamplight.app.upstream_commit", lambda: full)
+    monkeypatch.setattr("lamplight.app.commit_id", lambda: "abc1234")
+    assert "An update may be available." not in client.get("/").get_data(as_text=True)
+
+    monkeypatch.setattr("lamplight.app.commit_id", lambda: "")
+    assert "An update may be available." not in client.get("/settings").get_data(as_text=True)
+
+
+def test_dismiss_this_version_sets_a_cookie_and_hides_that_commit(client, monkeypatch):
+    seen = {"sha": "b" * 40}
+    monkeypatch.setattr("lamplight.app.upstream_commit", lambda: seen["sha"])
+    monkeypatch.setattr("lamplight.app.commit_id", lambda: "a" * 7)
+
+    response = client.post("/update/dismiss", data={"next": "/settings"})
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/settings")
+    cookie = response.headers["Set-Cookie"]
+    assert f"lamplight_dismissed_version={seen['sha']}" in cookie
+    assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
+
+    assert "An update may be available." not in client.get("/").get_data(as_text=True)
+    assert "An update may be available." not in client.get("/settings").get_data(as_text=True)
+
+    seen["sha"] = "c" * 40
+    assert "An update may be available." in client.get("/").get_data(as_text=True)
+
+
+def test_dismiss_ignores_an_offsite_next(client, monkeypatch):
+    monkeypatch.setattr("lamplight.app.upstream_commit", lambda: "b" * 40)
+    monkeypatch.setattr("lamplight.app.commit_id", lambda: "a" * 7)
+    response = client.post("/update/dismiss", data={"next": "https://example.com"})
+    assert response.headers["Location"].endswith("/")
+
+
 def test_the_token_is_never_echoed_back_into_a_page(app, client):
     """Settings shows that a token exists, not what it is."""
     body = client.get("/settings").get_data(as_text=True)

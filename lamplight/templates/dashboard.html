@@ -7,6 +7,8 @@
   </div>
 </header>
 
+{% include "_update.html" %}
+
 {% if not data.host.supported %}
   <p class="banner bad">This does not look like a Debian-family system. Package detection and apt installs will fail.</p>
 {% endif %}
