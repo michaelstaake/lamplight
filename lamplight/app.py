@@ -48,7 +48,6 @@ ACTIONS = frozenset({"install", "remove", *SERVICE_ACTIONS, *FIREWALL_ACTIONS})
 EDITABLE_SETTINGS = ("port", "document_root")
 STREAM_POLL_SECONDS = 0.3
 STREAM_MAX_SECONDS = 3600
-MASKED_TOKEN = "•" * 12
 DISMISSED_UPDATE_COOKIE = "lamplight_dismissed_version"
 _DISMISS_NEXT = frozenset({"/", "/settings"})
 
@@ -257,7 +256,6 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
             "settings.html",
             settings=current_settings(),
             data=state(),
-            token=MASKED_TOKEN,
             token_path=str(paths.auth_path),
             data_dir=str(paths.data_dir),
             db_path=str(paths.db_path),

@@ -32,15 +32,11 @@
     <dl class="facts stacked">
       <div><dt>Bind address</dt><dd class="mono">{{ settings.host }}:{{ settings.port }}</dd></div>
       <div><dt>Token file</dt><dd class="mono">{{ token_path }}</dd></div>
-      <div><dt>Token</dt><dd class="mono">{{ token }}</dd></div>
       <div><dt>Data directory</dt><dd class="mono">{{ data_dir }}</dd></div>
       <div><dt>Job database</dt><dd class="mono">{{ db_path }}</dd></div>
       <div><dt>Host</dt><dd>{{ data.host.pretty_name }}</dd></div>
       <div><dt>Running as root</dt><dd>{{ 'yes' if data.host.privileged else 'no' }}</dd></div>
     </dl>
-    <p class="hint">The bind address is deliberately not editable here — edit
-      <code class="mono">/etc/lamplight/lamplight.env</code> and restart. Anyone who can read the
-      token file on this machine can install packages through the panel.</p>
   </section>
 </div>
 {% endblock %}

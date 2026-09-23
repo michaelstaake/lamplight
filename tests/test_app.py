@@ -432,10 +432,10 @@ def test_dismiss_ignores_an_offsite_next(client, monkeypatch):
 
 
 def test_the_token_is_never_echoed_back_into_a_page(app, client):
-    """Settings shows that a token exists, not what it is."""
+    """Settings lists the token file, never the token itself."""
     body = client.get("/settings").get_data(as_text=True)
     assert app.config["TOKEN"] not in body
-    assert "•" in body
+    assert "<dt>Token</dt>" not in body
 
 
 # -- php extensions and options ------------------------------------------
