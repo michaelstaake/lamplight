@@ -18,7 +18,10 @@ _STAMP = Path(__file__).with_name("REVISION")
 _COMMIT_RE = re.compile(r"[0-9a-f]{7,40}")
 
 # The published branch is main. "master" is the same idea; this repo has no master.
-_UPSTREAM_URL = "https://api.github.com/repos/michaelstaake/lamplight/commits/main"
+# The commits feed, not the REST API: unauthenticated api.github.com calls share
+# a small per-IP quota and a 403 was being treated as "no update".
+_UPSTREAM_URL = "https://github.com/michaelstaake/lamplight/commits/main.atom"
+_UPSTREAM_SHA_RE = re.compile(r"tag:github.com,2008:Grit::Commit/([0-9a-f]{40})")
 _UPSTREAM_TTL_SECONDS = 600
 _cached_upstream: tuple[float, str] | None = None
 
@@ -82,13 +85,18 @@ def update_available(local: str, upstream: str) -> bool:
 
 
 def upstream_commit() -> str:
-    """Full SHA of GitHub main, or '' when it cannot be fetched. Cached briefly."""
+    """Full SHA of GitHub main, or '' when it cannot be fetched.
+
+    A successful answer is cached briefly. A miss is not, so a rate limit or a
+    blip does not hide an update for the rest of the cache window.
+    """
     global _cached_upstream
     now = time.monotonic()
     if _cached_upstream is not None and now - _cached_upstream[0] < _UPSTREAM_TTL_SECONDS:
         return _cached_upstream[1]
     sha = _fetch_upstream_commit()
-    _cached_upstream = (now, sha)
+    if sha:
+        _cached_upstream = (now, sha)
     return sha
 
 
@@ -98,20 +106,16 @@ def clear_upstream_cache() -> None:
 
 
 def _fetch_upstream_commit() -> str:
-    """Ask GitHub for the raw SHA. A miss, a timeout, or junk is ''."""
+    """Read the latest commit from the public main feed. A miss or timeout is ''."""
     request = urllib.request.Request(
         _UPSTREAM_URL,
-        headers={
-            "Accept": "application/vnd.github.sha",
-            "User-Agent": "lamplight",
-        },
+        headers={"Accept": "application/atom+xml", "User-Agent": "lamplight"},
     )
     try:
         with urllib.request.urlopen(request, timeout=3) as response:
-            body = response.read(65536).decode("utf-8", errors="replace").strip()
+            # The newest commit is the first entry, well inside the first entries.
+            body = response.read(8192).decode("utf-8", errors="replace")
     except (OSError, urllib.error.URLError, UnicodeError):
         return ""
-    if _COMMIT_RE.fullmatch(body):
-        return body.lower()
-    match = re.search(r'"sha"\s*:\s*"([0-9a-fA-F]{7,40})"', body)
-    return match.group(1).lower() if match else ""
+    match = _UPSTREAM_SHA_RE.search(body)
+    return match.group(1) if match else ""

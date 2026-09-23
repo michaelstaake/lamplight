@@ -56,10 +56,18 @@ def test_a_short_commit_matches_its_full_sha():
     assert not lamplight.update_available("abc1234", "")
 
 
-def test_upstream_commit_reads_a_raw_sha(monkeypatch):
+def test_upstream_commit_reads_the_newest_feed_entry(monkeypatch):
+    newest = "2194a20" + "2" * 33
+    older = "84acdbd" + "f" * 33
+    body = (
+        "<feed><id>tag:github.com,2008:/michaelstaake/lamplight/commits/main</id>"
+        f"<entry><id>tag:github.com,2008:Grit::Commit/{newest}</id></entry>"
+        f"<entry><id>tag:github.com,2008:Grit::Commit/{older}</id></entry></feed>"
+    )
+
     class Response:
         def read(self, _limit):
-            return b"abcdef0\n"
+            return body.encode()
 
         def __enter__(self):
             return self
@@ -69,24 +77,7 @@ def test_upstream_commit_reads_a_raw_sha(monkeypatch):
 
     monkeypatch.setattr(lamplight.urllib.request, "urlopen", lambda *a, **k: Response())
     lamplight.clear_upstream_cache()
-    assert lamplight.upstream_commit() == "abcdef0"
-    lamplight.clear_upstream_cache()
-
-
-def test_upstream_commit_reads_a_json_sha(monkeypatch):
-    class Response:
-        def read(self, _limit):
-            return b'{"sha": "1234abc"}'
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-    monkeypatch.setattr(lamplight.urllib.request, "urlopen", lambda *a, **k: Response())
-    lamplight.clear_upstream_cache()
-    assert lamplight.upstream_commit() == "1234abc"
+    assert lamplight.upstream_commit() == newest
     lamplight.clear_upstream_cache()
 
 
@@ -97,6 +88,21 @@ def test_upstream_commit_is_blank_when_github_is_unreachable(monkeypatch):
     monkeypatch.setattr(lamplight.urllib.request, "urlopen", boom)
     lamplight.clear_upstream_cache()
     assert lamplight.upstream_commit() == ""
+    lamplight.clear_upstream_cache()
+
+
+def test_a_failed_upstream_lookup_is_not_cached(monkeypatch):
+    calls = {"n": 0}
+
+    def fake():
+        calls["n"] += 1
+        return ""
+
+    monkeypatch.setattr(lamplight, "_fetch_upstream_commit", fake)
+    lamplight.clear_upstream_cache()
+    assert lamplight.upstream_commit() == ""
+    assert lamplight.upstream_commit() == ""
+    assert calls["n"] == 2
     lamplight.clear_upstream_cache()
 
 
