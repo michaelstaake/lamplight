@@ -514,6 +514,30 @@ function openMariaDbModal(name, source) {
   if (!dialog.open) dialog.showModal();
 }
 
+// Dashboard and Settings ask about a newer commit only after they have painted.
+// A slow or unreachable GitHub then delays this banner, not the page.
+function loadUpdateNotice() {
+  const slot = document.getElementById("update-notice");
+  if (!slot) return;
+  const next = window.location.pathname;
+  const signal = typeof AbortSignal !== "undefined" && AbortSignal.timeout
+    ? AbortSignal.timeout(5000)
+    : undefined;
+  fetch(`/partials/update?next=${encodeURIComponent(next)}`, {
+    headers: { Accept: "text/html" },
+    signal,
+  })
+    .then((res) => (res.ok ? res.text() : ""))
+    .then((html) => {
+      if (!html.trim()) return;
+      slot.innerHTML = html;
+      slot.hidden = false;
+    })
+    .catch(() => {});
+}
+
+loadUpdateNotice();
+
 document.addEventListener("submit", async (event) => {
   // A control named "id" replaces the form's own id, so the attribute is read
   // directly. Otherwise delete and folder save close the dialog and do nothing.

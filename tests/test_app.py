@@ -13,7 +13,7 @@ def test_healthz_needs_no_token(app):
 
 def test_pages_redirect_to_login_without_a_token(app):
     client = app.test_client()
-    for path in ("/", "/logs", "/settings", "/c/apache", "/partials/stack"):
+    for path in ("/", "/logs", "/settings", "/c/apache", "/partials/stack", "/partials/update"):
         response = client.get(path)
         assert response.status_code == 302, path
         assert "/login" in response.headers["Location"], path
@@ -373,25 +373,37 @@ def test_the_root_banner_and_settings_agree_about_the_host(client):
     assert f"<dd>{'yes' if rooted else 'no'}</dd>" in settings
 
 
-def test_dashboard_and_settings_warn_when_github_main_differs(client, monkeypatch):
-    upstream = "b" * 40
-    monkeypatch.setattr("lamplight.app.upstream_commit", lambda: upstream)
-    monkeypatch.setattr("lamplight.app.commit_id", lambda: "a" * 7)
+def test_dashboard_and_settings_do_not_ask_github_while_rendering(client, monkeypatch):
+    def blocked():
+        raise AssertionError("page render must not ask GitHub")
+
+    monkeypatch.setattr("lamplight.app.upstream_commit", blocked)
     for path in ("/", "/settings"):
         body = client.get(path).get_data(as_text=True)
-        assert "An update may be available." in body
-        assert "Dismiss this version" in body
-    assert "An update may be available." not in client.get("/c/apache").get_data(as_text=True)
+        assert 'id="update-notice"' in body
+        assert "An update may be available." not in body
+    apache = client.get("/c/apache").get_data(as_text=True)
+    assert 'id="update-notice"' not in apache
+    assert "An update may be available." not in apache
+
+
+def test_the_update_partial_warns_when_github_main_differs(client, monkeypatch):
+    monkeypatch.setattr("lamplight.app.upstream_commit", lambda: "b" * 40)
+    monkeypatch.setattr("lamplight.app.commit_id", lambda: "a" * 7)
+    body = client.get("/partials/update?next=/settings").get_data(as_text=True)
+    assert "An update may be available." in body
+    assert "Dismiss this version" in body
+    assert 'value="/settings"' in body
 
 
 def test_a_matching_commit_and_an_unknown_one_stay_quiet(client, monkeypatch):
     full = "abc1234" + "d" * 33
     monkeypatch.setattr("lamplight.app.upstream_commit", lambda: full)
     monkeypatch.setattr("lamplight.app.commit_id", lambda: "abc1234")
-    assert "An update may be available." not in client.get("/").get_data(as_text=True)
+    assert client.get("/partials/update").get_data(as_text=True) == ""
 
     monkeypatch.setattr("lamplight.app.commit_id", lambda: "")
-    assert "An update may be available." not in client.get("/settings").get_data(as_text=True)
+    assert client.get("/partials/update").get_data(as_text=True) == ""
 
 
 def test_dismiss_this_version_sets_a_cookie_and_hides_that_commit(client, monkeypatch):
@@ -406,11 +418,10 @@ def test_dismiss_this_version_sets_a_cookie_and_hides_that_commit(client, monkey
     assert f"lamplight_dismissed_version={seen['sha']}" in cookie
     assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
 
-    assert "An update may be available." not in client.get("/").get_data(as_text=True)
-    assert "An update may be available." not in client.get("/settings").get_data(as_text=True)
+    assert client.get("/partials/update").get_data(as_text=True) == ""
 
     seen["sha"] = "c" * 40
-    assert "An update may be available." in client.get("/").get_data(as_text=True)
+    assert "An update may be available." in client.get("/partials/update").get_data(as_text=True)
 
 
 def test_dismiss_ignores_an_offsite_next(client, monkeypatch):

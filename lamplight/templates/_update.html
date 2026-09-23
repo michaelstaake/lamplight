@@ -1,9 +1,7 @@
-{% if update_sha %}
 <div class="banner warn update-banner" role="status">
   <span>An update may be available.</span>
   <form method="post" action="{{ url_for('dismiss_update') }}">
-    <input type="hidden" name="next" value="{{ request.path }}">
+    <input type="hidden" name="next" value="{{ next_path }}">
     <button class="linkish" type="submit">Dismiss this version</button>
   </form>
 </div>
-{% endif %}

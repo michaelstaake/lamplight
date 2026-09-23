@@ -204,7 +204,6 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
             jobs=store.list(),
             history=store.history,
             job=job,
-            update_sha=pending_update(),
         )
 
     def readable_logs(item: dict) -> bool:
@@ -262,7 +261,6 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
             token_path=str(paths.auth_path),
             data_dir=str(paths.data_dir),
             db_path=str(paths.db_path),
-            update_sha=pending_update(),
         )
 
     def pending_update() -> str:
@@ -295,6 +293,22 @@ def create_app(*, paths: config.AppPaths | None = None) -> Flask:
         return response
 
     # -- html partials, so card markup is never duplicated in JavaScript --
+
+    @app.get("/partials/update")
+    @require_auth
+    def update_partial():
+        """The update banner, fetched after the page is already on screen.
+
+        GitHub is asked here, not while rendering Dashboard or Settings, so a
+        slow or dead network cannot hold those pages back.
+        """
+        sha = pending_update()
+        if not sha:
+            return ""
+        next_path = request.args.get("next")
+        if next_path not in _DISMISS_NEXT:
+            next_path = url_for("home")
+        return render_template("_update.html", next_path=next_path)
 
     @app.get("/partials/stack")
     @require_auth
