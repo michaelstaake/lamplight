@@ -164,6 +164,10 @@ takes, so nothing typed into the browser can become a second line of the `.ini`.
 
 ## Managing Apache
 
+Installing Apache enables `mod_rewrite` and sets `AllowOverride All` on the `<Directory /var/www/>`
+block in `/etc/apache2/apache2.conf`, so a project can use `.htaccess`. The other directory blocks
+stay `AllowOverride None`. Apache is reloaded when it is already running.
+
 The Apache page lists vhosts between status and logs. A fresh install shows the default site and
 the folder it serves, `/var/www/html`. Click a row to change that folder. **Add** creates another
 name — `app.test` served from `/var/www/app.test` — enables the site, and adds

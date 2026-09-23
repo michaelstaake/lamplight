@@ -68,15 +68,79 @@ def test_plain_service_actions_do_not_pass_now(installer, store):
     assert "systemctl restart apache2" in logged(store, job_id)
 
 
-def test_install_runs_apt_with_the_component_packages(installer, store, monkeypatch):
+STOCK_APACHE_CONF = """\
+<Directory />
+	Options FollowSymLinks
+	AllowOverride None
+	Require all denied
+</Directory>
+
+<Directory /usr/share>
+	AllowOverride None
+	Require all granted
+</Directory>
+
+<Directory /var/www/>
+	Options Indexes FollowSymLinks
+	AllowOverride None
+	Require all granted
+</Directory>
+
+#<Directory /srv/>
+#	Options Indexes FollowSymLinks
+#	AllowOverride None
+#	Require all granted
+#</Directory>
+"""
+
+
+def test_install_runs_apt_with_the_component_packages(installer, store, monkeypatch, tmp_path):
     monkeypatch.setattr(
         installer_module.subprocess, "Popen", lambda *a, **k: pytest.fail("ran a real command")
     )
+    conf = tmp_path / "apache2.conf"
+    conf.write_text(STOCK_APACHE_CONF, encoding="utf-8")
+    monkeypatch.setattr(installer_module, "APACHE_CONF", conf)
     job_id = store.create("apache", "install")
     installer.install(job_id, "apache")
     log = logged(store, job_id)
     assert "apt-get update" in log
     assert "apt-get install -y --no-install-recommends apache2" in log
+    assert "a2enmod rewrite" in log
+    assert "systemctl reload apache2" in log
+    text = conf.read_text(encoding="utf-8")
+    assert "<Directory /var/www/>\n\tOptions Indexes FollowSymLinks\n\tAllowOverride All\n" in text
+    assert "<Directory />\n\tOptions FollowSymLinks\n\tAllowOverride None\n" in text
+    assert "<Directory /usr/share>\n\tAllowOverride None\n" in text
+    assert "#\tAllowOverride None\n" in text
+
+
+def test_apache_install_leaves_allow_override_all_in_place(installer, store, monkeypatch, tmp_path):
+    """Only the /var/www/ line is All. The other None lines show a wide replace would be wrong."""
+    conf = tmp_path / "apache2.conf"
+    text = STOCK_APACHE_CONF.replace(
+        "<Directory /var/www/>\n\tOptions Indexes FollowSymLinks\n\tAllowOverride None\n",
+        "<Directory /var/www/>\n\tOptions Indexes FollowSymLinks\n\tAllowOverride All\n",
+    )
+    conf.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(installer_module, "APACHE_CONF", conf)
+    job_id = store.create("apache", "install")
+    installer.install(job_id, "apache")
+    assert conf.read_text(encoding="utf-8") == text
+    assert "already set for /var/www/" in logged(store, job_id)
+
+
+def test_www_allow_override_requires_the_var_www_block():
+    with pytest.raises(RuntimeError, match="no <Directory /var/www/>"):
+        installer_module.www_allow_override_all(
+            "<Directory />\n\tAllowOverride None\n</Directory>\n"
+        )
+
+
+def test_www_allow_override_requires_the_directive():
+    text = "<Directory /var/www/>\n\tRequire all granted\n</Directory>\n"
+    with pytest.raises(RuntimeError, match="no AllowOverride None"):
+        installer_module.www_allow_override_all(text)
 
 
 def test_apt_remove_covers_extra_packages(installer, store):

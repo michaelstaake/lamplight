@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 import platform
+import re
 import subprocess
 import tarfile
 import tempfile
@@ -71,6 +72,50 @@ phpmyadmin phpmyadmin/mysql/admin-pass password
 phpmyadmin phpmyadmin/mysql/app-pass password
 phpmyadmin phpmyadmin/app-password-confirm password
 """
+
+# Debian's apache2.conf keeps AllowOverride None on several directories. Only
+# /var/www/ is the tree projects live in; the others stay locked down.
+APACHE_CONF = Path("/etc/apache2/apache2.conf")
+_WWW_DIRECTORY_OPEN = re.compile(r"^[ \t]*<Directory[ \t]+/var/www/?[ \t]*>[ \t]*$")
+_DIRECTORY_CLOSE = re.compile(r"^[ \t]*</Directory>[ \t]*$")
+_ALLOW_OVERRIDE_NONE = re.compile(r"^([ \t]*AllowOverride[ \t]+)None[ \t]*$")
+_ALLOW_OVERRIDE_ALL = re.compile(r"^[ \t]*AllowOverride[ \t]+All[ \t]*$")
+
+
+def www_allow_override_all(text: str) -> str:
+    """Set AllowOverride All inside `<Directory /var/www/>`, and nowhere else.
+
+    Already-All is left untouched so a second install does not rewrite the file.
+    """
+    lines = text.splitlines(keepends=True)
+    inside = False
+    saw_block = False
+    changed = False
+    already = False
+    rewritten: list[str] = []
+    for line in lines:
+        body = line.rstrip("\r\n")
+        ending = line[len(body) :]
+        if not inside and _WWW_DIRECTORY_OPEN.match(body):
+            inside = True
+            saw_block = True
+        elif inside and _DIRECTORY_CLOSE.match(body):
+            inside = False
+        elif inside and _ALLOW_OVERRIDE_ALL.match(body):
+            already = True
+        elif inside and not changed:
+            match = _ALLOW_OVERRIDE_NONE.match(body)
+            if match:
+                line = f"{match.group(1)}All{ending}"
+                changed = True
+        rewritten.append(line)
+    if not saw_block:
+        raise RuntimeError(f"{APACHE_CONF} has no <Directory /var/www/> block")
+    if not changed and not already:
+        raise RuntimeError(
+            f"The <Directory /var/www/> block in {APACHE_CONF} has no AllowOverride None to change"
+        )
+    return "".join(rewritten)
 
 
 class Installer:
@@ -456,8 +501,36 @@ class Installer:
         self._run_checked(
             job_id, ["apt-get", "install", "-y", "--no-install-recommends", *packages]
         )
+        if component.id == "apache":
+            self._configure_apache(job_id)
         if component.service:
             self._run_checked(job_id, ["systemctl", "enable", "--now", component.service])
+
+    def _configure_apache(self, job_id: str) -> None:
+        """mod_rewrite and .htaccess under /var/www/, then reload if Apache is up.
+
+        The package starts Apache from the stock config, so a reload is what
+        makes these two changes take effect on a machine where it is already running.
+        """
+        self._log(job_id, "Enabling mod_rewrite")
+        self._run_checked(job_id, ["a2enmod", "rewrite"])
+        self._set_www_allow_override(job_id)
+        self._run_checked(job_id, ["apache2ctl", "configtest"])
+        if self._run(job_id, ["systemctl", "is-active", "--quiet", "apache2"]) == 0:
+            self._run_checked(job_id, ["systemctl", "reload", "apache2"])
+
+    def _set_www_allow_override(self, job_id: str) -> None:
+        path = APACHE_CONF
+        try:
+            original = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise RuntimeError(f"Could not read {path}") from exc
+        updated = www_allow_override_all(original)
+        if updated == original:
+            self._log(job_id, f"{path}: AllowOverride All is already set for /var/www/")
+            return
+        self._log(job_id, f"{path}: AllowOverride None -> All for /var/www/")
+        config.atomic_write(path, updated, mode=0o644)
 
     def _apt_remove(self, job_id: str, component) -> None:
         packages = self._packages(component)

@@ -7,7 +7,7 @@ import subprocess
 from functools import cache
 from pathlib import Path
 
-__version__ = "1.5"
+__version__ = "1.6"
 
 # install.sh writes this beside the package before pip installs it. The copy
 # in /opt/lamplight has no .git, so the running service cannot ask git itself.
@@ -16,7 +16,7 @@ _COMMIT_RE = re.compile(r"[0-9a-f]{7,40}")
 
 
 def display_version() -> str:
-    """`1.5.abc1234` when this build's commit is known, otherwise `1.5`."""
+    """`1.6.abc1234` when this build's commit is known, otherwise `1.6`."""
     short = commit_id()
     return f"{__version__}.{short}" if short else __version__
 

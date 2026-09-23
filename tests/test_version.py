@@ -9,7 +9,7 @@ def test_a_stamped_commit_is_shown_with_the_version(monkeypatch):
     monkeypatch.setattr(lamplight, "_stamped_commit", lambda: "abc1234")
     monkeypatch.setattr(lamplight, "_checkout_commit", lambda: "ignored")
     _reset_commit()
-    assert lamplight.display_version() == "1.5.abc1234"
+    assert lamplight.display_version() == "1.6.abc1234"
     _reset_commit()
 
 
