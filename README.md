@@ -173,9 +173,10 @@ the folder it serves, `/var/www/html`. Click a row to change that folder. **Add*
 name — `app.test` served from `/var/www/app.test` — enables the site, and adds
 `127.0.0.1 app.test` to `/etc/hosts` so this machine can open it.
 
-The default site cannot be deleted. Deleting any other vhost removes its Apache config and the
-hosts line Lamplight added. The folder and the files in it stay. Apache is reloaded when it is
-running. A config Apache rejects is written back to what it was.
+The default site cannot be deleted. Deleting any other vhost removes its Apache config, its
+access and error logs, and the hosts line Lamplight added. The folder and the files in it stay.
+Apache is reloaded when it is running, and the logs are removed only after that reload succeeds.
+A config Apache rejects is written back to what it was.
 
 ## Managing MariaDB
 

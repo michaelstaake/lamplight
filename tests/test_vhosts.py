@@ -189,6 +189,13 @@ def test_the_default_site_cannot_be_deleted_and_another_can(monkeypatch, tmp_pat
     vhosts.create_vhost("app.test", "/var/www/app")
     folder = tmp_path / "untouched"
     folder.mkdir()
+    logs = tmp_path / "apache2"
+    logs.mkdir()
+    monkeypatch.setattr(vhosts, "APACHE_LOG_DIR", logs)
+    for name in ("app.test-access.log", "app.test-error.log", "error.log", "access.log"):
+        (logs / name).write_text("line\n", encoding="utf-8")
+    outside = tmp_path / "outside.log"
+    outside.write_text("keep\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="cannot be deleted"):
         vhosts.delete_vhost("000-default")
@@ -200,6 +207,11 @@ def test_the_default_site_cannot_be_deleted_and_another_can(monkeypatch, tmp_pat
     assert "app.test" not in hosts.read_text(encoding="utf-8")
     assert "127.0.0.1 localhost" in hosts.read_text(encoding="utf-8")
     assert folder.is_dir()
+    assert not (logs / "app.test-access.log").exists()
+    assert not (logs / "app.test-error.log").exists()
+    assert (logs / "error.log").is_file()
+    assert (logs / "access.log").is_file()
+    assert outside.is_file()
 
 
 def test_a_failed_delete_puts_the_site_back(monkeypatch, tmp_path):
@@ -208,6 +220,11 @@ def test_a_failed_delete_puts_the_site_back(monkeypatch, tmp_path):
     monkeypatch.setattr(vhosts, "reload_apache", lambda: None)
     vhosts.create_vhost("app.test", "/var/www/app")
     original = (available / "app.test.conf").read_text(encoding="utf-8")
+    logs = tmp_path / "apache2"
+    logs.mkdir()
+    monkeypatch.setattr(vhosts, "APACHE_LOG_DIR", logs)
+    access = logs / "app.test-access.log"
+    access.write_text("line\n", encoding="utf-8")
 
     def boom():
         raise vhosts.ApacheError("reload failed")
@@ -217,6 +234,25 @@ def test_a_failed_delete_puts_the_site_back(monkeypatch, tmp_path):
         vhosts.delete_vhost("app.test")
     assert (available / "app.test.conf").read_text(encoding="utf-8") == original
     assert "127.0.0.1 app.test # lamplight" in hosts.read_text(encoding="utf-8")
+    assert access.is_file()
+
+
+def test_log_paths_stay_inside_the_apache_log_directory(tmp_path, monkeypatch):
+    logs = tmp_path / "apache2"
+    logs.mkdir()
+    monkeypatch.setattr(vhosts, "APACHE_LOG_DIR", logs)
+    (logs / "app.test-access.log").write_text("line\n", encoding="utf-8")
+    (logs / "error.log").write_text("shared\n", encoding="utf-8")
+    outside = tmp_path / "secret.log"
+    outside.write_text("nope\n", encoding="utf-8")
+    text = (
+        "ErrorLog ${APACHE_LOG_DIR}/app.test-error.log\n"
+        "CustomLog ${APACHE_LOG_DIR}/app.test-access.log combined\n"
+        "ErrorLog ${APACHE_LOG_DIR}/error.log\n"
+        f"CustomLog {outside} combined\n"
+        'ErrorLog "|/usr/bin/rotatelogs /tmp/x 86400"\n'
+    )
+    assert vhosts.log_paths(text) == [logs / "app.test-access.log"]
 
 
 def test_changes_require_root(monkeypatch, tmp_path):

@@ -18,10 +18,13 @@ import subprocess
 from pathlib import Path
 
 from . import systemops
+from .logsources import APACHE_LOG_DIR
 
 SITES_AVAILABLE = Path("/etc/apache2/sites-available")
 SITES_ENABLED = Path("/etc/apache2/sites-enabled")
 HOSTS_FILE = Path("/etc/hosts")
+# The default site and the catch-all access log. A vhost must not take these with it.
+_SHARED_LOGS = frozenset({"access.log", "error.log", "other_vhosts_access.log"})
 
 DEFAULT_ID = "000-default"
 DEFAULT_NAME = "default"
@@ -41,6 +44,7 @@ _SITE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _FOLDER_RE = re.compile(r"^/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$")
 _DOCROOT_RE = re.compile(r"^([ \t]*DocumentRoot[ \t]+)(\S+)", re.MULTILINE)
 _SERVER_RE = re.compile(r"^[ \t]*ServerName[ \t]+(\S+)", re.MULTILINE)
+_LOG_RE = re.compile(r"^[ \t]*(?:ErrorLog|CustomLog)[ \t]+(\S+)", re.MULTILINE)
 
 
 class ApacheError(RuntimeError):
@@ -212,8 +216,45 @@ def set_folder(site_id: object, folder: object) -> None:
         raise
 
 
+def log_paths(text: str) -> list[Path]:
+    """Access and error logs named in one site file, when they live in the Apache log dir.
+
+    The default site's logs and `other_vhosts_access.log` are shared, so they are
+    never returned. A path that leaves the log directory is not returned either.
+    """
+    try:
+        root = APACHE_LOG_DIR.resolve()
+    except OSError:
+        return []
+    found: list[Path] = []
+    seen: set[Path] = set()
+    for match in _LOG_RE.finditer(text):
+        token = _unquote(match.group(1))
+        if not token or token.startswith("|") or token.startswith("syslog"):
+            continue
+        token = token.replace("${APACHE_LOG_DIR}", str(APACHE_LOG_DIR))
+        token = token.replace("$APACHE_LOG_DIR", str(APACHE_LOG_DIR))
+        path = Path(token)
+        if not path.is_absolute() or path.name in _SHARED_LOGS or path in seen:
+            continue
+        try:
+            parent = path.parent.resolve()
+            inside = parent.is_relative_to(root) or parent == root
+            if not inside or not (path.is_file() or path.is_symlink()):
+                continue
+        except OSError:
+            continue
+        seen.add(path)
+        found.append(path)
+    return found
+
+
 def delete_vhost(site_id: object) -> None:
-    """Remove a site's config and the hosts line added for it. The folder stays."""
+    """Remove a site's config, its access and error logs, and the hosts line added for it.
+
+    The document root stays. Logs go only after Apache accepts the change, so a
+    rejected config still has the files it was writing.
+    """
     ident = clean_site_id(site_id)
     _require_root()
     if ident == DEFAULT_ID:
@@ -225,6 +266,7 @@ def delete_vhost(site_id: object) -> None:
 
     available = _available_path(ident)
     enabled = _enabled_path(ident)
+    _config_path, config_text = _read_config(ident)
     available_text = _snapshot(available, SITES_AVAILABLE)
     enabled_text, enabled_link = _snapshot_enabled(enabled)
     previous_hosts = _read_hosts()
@@ -244,6 +286,8 @@ def delete_vhost(site_id: object) -> None:
         if revised_hosts != previous_hosts:
             _write(HOSTS_FILE, previous_hosts)
         raise
+    for path in log_paths(config_text):
+        _remove(path)
 
 
 def enable_site(site_id: str) -> None:
